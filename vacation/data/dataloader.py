@@ -16,25 +16,26 @@ from pathlib import Path
 VALID_UNIT_PREFIXES = {"K": 3, "M": 6, "G": 9, "T": 12, "P": 15}
 CACHE_CLEANING_POLICIES = ["oldest", "youngest", "largest"]
 
+
 class DataCache:
 
     def __init__(self, max_size, cleaning_policy):
         """
         Creates a new data cache for files in the dataset.
-    
+
         The cache records are structured as follows:
         records = { UNIQUE_ID: { data: DATA, size: MEMORY_SIZE }, ... }
-    
+
         The data has to have the following form:
         DATA = (torch.Tensor)
-    
+
         Parameters
         ----------
-    
+
         max_size: str or int
             The maximum memory size of the file cache. Can be given as bytes (int)
             or a string (e.g. `"10G"` or `"1M"`).
-    
+
         cleaning_policy: str
             The way the program will remove files from the cache if it has reached its
             memory limit.
@@ -42,7 +43,6 @@ class DataCache:
                 1. `oldest` -> the oldest file in the cache will be removed
                 2. `youngest` -> the youngest file in the cache will be removed
                 3. `largest` -> the largest file in the cache will be removed
-                
         """
         self._records = dict()
         self._memsize = 0
@@ -154,8 +154,9 @@ CLASS_NAMES = [
     "Edge-on with Bulge"
 ]
 
+
 class GalaxyDataset(Dataset):
-    def __init__(self, path: Path | str, device: str,         
+    def __init__(self, path: Path | str, device: str,
                  cache_loaded: bool = True,
                  max_cache_size: str = "3G",
                  cache_cleaning_policy: str = "oldest",
@@ -163,7 +164,7 @@ class GalaxyDataset(Dataset):
         super(GalaxyDataset, self).__init__()
         self.path: Path = path if isinstance(path, Path) else Path(path)
         self.device: str = device
-        
+
         self._hf: h5py._hl.files.File = h5py.File(self.path, "r")
         self._labels = torch.from_numpy(self._hf["ans"][:]).to(self.device)
 
@@ -186,10 +187,10 @@ class GalaxyDataset(Dataset):
                 return cached_data, self._labels[key]
 
         data = torch.Tensor(self._hf["images"][key].T).to(self.device)
-        
+
         if self._cache is not None:
             self._cache.add(key, data)
-        
+
         return data, self._labels[key]
 
     def get_label(self, key: int) -> tuple(int, str):
@@ -200,5 +201,3 @@ class GalaxyDataset(Dataset):
         label = int(self._labels[key])
 
         return label, CLASS_NAMES[label]
-        
-        
