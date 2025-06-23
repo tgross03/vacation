@@ -1,16 +1,14 @@
-import h5py
-import torch
-
-import numpy as np
 import sys
-
 import warnings
-
-from torch.utils.data import DataLoader, Dataset
-
 from pathlib import Path
 
-# Data Caching adapted from own previous project: simtools (https://github.com/tgross03/simtools/blob/main/simtools/data/dataset.py)
+import h5py
+import numpy as np
+import torch
+from torch.utils.data import Dataset
+
+# Data Caching adapted from own previous project: simtools
+# (https://github.com/tgross03/simtools/blob/main/simtools/data/dataset.py)
 # Originally licensed under MIT License. Copyright (c) 2024, Tom Groß.
 
 VALID_UNIT_PREFIXES = {"K": 3, "M": 6, "G": 9, "T": 12, "P": 15}
@@ -18,7 +16,6 @@ CACHE_CLEANING_POLICIES = ["oldest", "youngest", "largest"]
 
 
 class DataCache:
-
     def __init__(self, max_size, cleaning_policy):
         """
         Creates a new data cache for files in the dataset.
@@ -55,8 +52,8 @@ class DataCache:
                         f"The valid unit prefixes are: {VALID_UNIT_PREFIXES.keys()}"
                     )
 
-                self._max_size = (
-                    int(max_size[:-1]) * 10 ** (VALID_UNIT_PREFIXES[max_size[-1]])
+                self._max_size = int(max_size[:-1]) * 10 ** (
+                    VALID_UNIT_PREFIXES[max_size[-1]]
                 )
             case int():
                 self._max_size = max_size
@@ -67,15 +64,14 @@ class DataCache:
 
         if cleaning_policy not in CACHE_CLEANING_POLICIES:
             raise ValueError(
-                f"The given cleaning policy does not exist! Valid values are {CACHE_CLEANING_POLICIES}"
+                f"The given cleaning policy does not exist! "
+                f"Valid values are {CACHE_CLEANING_POLICIES}"
             )
 
         self.cleaning_policy = cleaning_policy
 
     def __getitem__(self, i):
-        record = (
-            self._records[str(i)] if str(i) in self._records else None
-        )
+        record = self._records[str(i)] if str(i) in self._records else None
 
         if record is None:
             return None
@@ -151,16 +147,19 @@ CLASS_NAMES = [
     "Unbarred Tight Spiral",
     "Unbarred Loose Spiral",
     "Edge-on without Bulge",
-    "Edge-on with Bulge"
+    "Edge-on with Bulge",
 ]
 
 
 class GalaxyDataset(Dataset):
-    def __init__(self, path: Path | str, device: str,
-                 cache_loaded: bool = True,
-                 max_cache_size: str = "3G",
-                 cache_cleaning_policy: str = "oldest",
-                ):
+    def __init__(
+        self,
+        path: Path | str,
+        device: str,
+        cache_loaded: bool = True,
+        max_cache_size: str = "3G",
+        cache_cleaning_policy: str = "oldest",
+    ):
         super(GalaxyDataset, self).__init__()
         self.path: Path = path if isinstance(path, Path) else Path(path)
         self.device: str = device

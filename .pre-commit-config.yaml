@@ -17,5 +17,5 @@ repos:
     rev: 7.1.0
     hooks:
       - id: flake8
-        args: [--max-line-length=88, "--extend-ignore=E203,E741,E731"]
+        args: [--max-line-length=100, "--extend-ignore=E203,E741,E731"]
         exclude: "version.py|__init__.py"
