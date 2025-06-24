@@ -2,10 +2,49 @@ import sys
 import warnings
 from pathlib import Path
 
+import requests
+import shutil
+from hashlib import file_digest
+
 import h5py
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+
+def download_dataset(location: Path, overwrite: bool = True):
+
+    url = "https://zenodo.org/records/10845026/files/Galaxy10_DECals.h5"
+    
+    if not isinstance(location, Path):
+        location = Path(location)
+
+    location.mkdir(exist_ok=True, parents=True)
+    target = location / url.split("/")[-1]
+
+    if target.is_file():
+        if not overwrite:
+            warnings.warn("The data file already exists at this location! Use a different location or set 'overwrite=True'.")
+        else:
+            target.unlink(missing_ok=True)
+            print(f"Downloading data from {url}. Saving to {str(target)}.")
+
+            with requests.get(url, stream=True) as req:
+                with open(target, "wb") as file:
+                    shutil.copyfileobj(req.raw, file)
+
+            print("Finished download of data!")
+
+    with open(target, "rb") as file:
+        md5sum = file_digest(file, "md5").hexdigest()
+
+    if md5sum != "c6b7b4db82b3a5d63d6a7e3e5249b51c":
+        warnings.warn(
+            "The MD5 checksum of the downloaded file is not equal to the original file! " 
+            "Consider retrying the download!"
+        )
+    else:
+        print("Checksum passed successfully.")
+
 
 # Data Caching adapted from own previous project: simtools
 # (https://github.com/tgross03/simtools/blob/main/simtools/data/dataset.py)
@@ -192,8 +231,7 @@ class GalaxyDataset(Dataset):
 
         return data, self._labels[key]
 
-    def get_label(self, key: int) -> tuple(int, str):
-
+    def get_label(self, key: int) -> tuple[int, str]:
         if not isinstance(key, int):
             raise KeyError("The given key has to be an integer value!")
 
