@@ -3,6 +3,10 @@
 #     Originally licensed under MIT License. Copyright (c) 2021 radionets-project.
 
 repos:
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.8.1
+    hooks:
+      - id: nbstripout
   - repo: https://github.com/pycqa/isort
     rev: 5.12.0
     hooks:
