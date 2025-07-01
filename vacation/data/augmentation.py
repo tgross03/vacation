@@ -1,23 +1,16 @@
-import h5py
-import numpy as np
-import torchvision.transforms.v2 as transforms
-from scipy.signal import fftconvolve
-import torch
-from tqdm.auto import tqdm
-
+import shutil
 from pathlib import Path
 
-import shutil
-
-from vacation.data import download_dataset
-
-from sklearn.preprocessing import MinMaxScaler
-
-import matplotlib.pyplot as plt
+import h5py
+import numpy as np
+import torch
+import torchvision.transforms.v2 as transforms
+from tqdm.auto import tqdm
 
 
 def _numpy_to_tensor(array: np.ndarray, device: str = "cuda") -> torch.Tensor:
     return torch.from_numpy(array).permute(2, 0, 1).float().to(device)
+
 
 def _tensor_to_numpy(tensor: torch.Tensor, device: str = "cuda") -> np.ndarray:
     tensor = torch.clamp(tensor, 0, 1)
@@ -34,7 +27,13 @@ _transform = transforms.Compose(
 )
 
 
-def augment_dataset(path: str, class_index: int, target_count: int = 2600, device: str = "cuda", seed: int | None = 42) -> tuple[np.ndarray, np.ndarray]:
+def augment_dataset(
+    path: str,
+    class_index: int,
+    target_count: int = 2600,
+    device: str = "cuda",
+    seed: int | None = 42,
+) -> tuple[np.ndarray, np.ndarray]:
 
     rng = np.random.default_rng(seed=seed)
 
