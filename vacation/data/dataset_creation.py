@@ -4,13 +4,15 @@ import warnings
 from hashlib import file_digest
 from pathlib import Path
 
+from tqdm.auto import tqdm
+
 import h5py
 import numpy as np
 import requests
 from sklearn.model_selection import train_test_split as split
 
 
-def create_dataset(location: Path, redownload: bool = False, overwrite: bool = True):
+def generate_dataset(location: Path, redownload: bool = False, overwrite: bool = True):
 
     url = "https://zenodo.org/records/10845026/files/Galaxy10_DECals.h5"
 
@@ -101,18 +103,43 @@ def create_dataset(location: Path, redownload: bool = False, overwrite: bool = T
     gc.collect()
 
 
-def train_test_split(
+def extend_dataset(
     path: str,
-    test_size: float = 0.2,
-    random_state: int | None = None,
-    shuffle: bool = True,
-    stratify: bool = True,
-):
+    target_path: str,
+    images: np.ndarray,
+    labels: np.ndarray,
+    copy_original: bool = True,
+    overwrite: bool = False,
+) -> None:
 
-    path = Path(path)
+    target_path = Path(target_path)
 
-    def _save_h5(path: Path, suffix: str, X: np.ndarray, y: np.ndarray):
-        path = path.parent / (path.stem + f"_{suffix}.h5")
+    if not target_path.is_file():
+        shutil.copy(Path(path), target_path)
+    elif copy_original and not overwrite:
+        raise FileExistsError(
+            "This file already exists. Set 'overwrite = True' to overwrite the file!"
+        )
+
+    with h5py.File(target_path, mode="a") as hf:
+
+        images_h5 = hf["images"]
+        labels_h5 = hf["ans"]
+
+        original_size = images_h5.shape[0]
+
+        images_h5.resize(original_size + images.shape[0], axis=0)
+        labels_h5.resize(original_size + labels.shape[0], axis=0)
+
+        images_h5[original_size:] = images
+        labels_h5[original_size:] = labels
+
+
+def _save_h5(path: Path, X: np.ndarray, y: np.ndarray):
+
+    if path.exists():
+        extend_dataset(path=None, target_path=path, images=X, labels=y, copy_original=False, overwrite=True)
+    else:
         with h5py.File(path, "w") as f:
             f.create_dataset(
                 "images",
@@ -128,7 +155,20 @@ def train_test_split(
                 chunks=True,
                 compression="gzip",
             )
-        return path
+    return path
+
+
+def train_test_split(
+    path: str,
+    test_size: float = 0.2,
+    random_state: int | None = None,
+    shuffle: bool = True,
+    stratify: bool = True,
+    pack_size: int = None,
+    overwrite: bool = False,
+):
+
+    path = Path(path)
 
     with h5py.File(path, "r") as hf:
 
@@ -149,26 +189,46 @@ def train_test_split(
         train_idx = np.sort(train_idx)
         test_idx = np.sort(test_idx)
 
-        print("Loading test data ...")
-        X_train, y_train = (
-            np.asarray(hf["images"][train_idx], dtype=np.float32),
-            labels[train_idx],
-        )
-        print("Loaded training data ... Saving to file ...")
-        train_hf = _save_h5(path=path, suffix="train", X=X_train, y=y_train)
+        if pack_size:
+            training_pack_idx = zip(np.arange(0, train_idx.size, pack_size),
+                           np.arange(pack_size, train_idx.size + pack_size, pack_size))
+            test_pack_idx = zip(np.arange(0, train_idx.size, pack_size),
+                           np.arange(pack_size, train_idx.size + pack_size, pack_size))
+            train_idx = [train_idx[i:j] for i, j in training_pack_idx]
+            test_idx = [test_idx[i:j] for i, j in test_pack_idx]
+        else:
+            train_idx = [train_idx]
+            test_idx = [test_idx]
 
-        del X_train
-        del y_train
+        train_path = path.parent / (path.stem + f"_train.h5")
+        test_path = path.parent / (path.stem + f"_test.h5")
 
-        print("Loading training data ...")
-        X_test, y_test = (
-            np.asarray(hf["images"][test_idx], dtype=np.float32),
-            labels[test_idx],
-        )
-        print("Loaded test data ... Saving to file ...")
-        test_hf = _save_h5(path=path, suffix="train", X=X_test, y=y_test)
+        if not train_path.exists() or overwrite:
+            for idx_pgk in tqdm(train_idx, desc="Loading and saving training data"):
+                X_train, y_train = (
+                    np.asarray(hf["images"][idx_pgk], dtype=np.float32),
+                    labels[idx_pgk],
+                )
 
-        del X_test
-        del y_test
+                _save_h5(path=train_path, X=X_train, y=y_train)
 
-    return train_hf, test_hf
+                del X_train
+                del y_train
+        else:
+            print("Training dataset already exists. Skipping creation. Set 'overwrite = True' to overwrite!")
+
+        if not test_path.exists() or overwrite:
+            for idx_pgk in tqdm(test_idx, desc="Saving test data"):
+                X_test, y_test = (
+                    np.asarray(hf["images"][idx_pgk], dtype=np.float32),
+                    labels[idx_pgk],
+                )
+
+                _save_h5(path=test_path, X=X_test, y=y_test)
+
+                del X_test
+                del y_test
+        else:
+            print("Test dataset already exists. Skipping creation. Set 'overwrite = True' to overwrite!")
+
+    return train_path, test_path

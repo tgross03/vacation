@@ -59,34 +59,3 @@ def augment_dataset(
             )
 
     return augmented_images, augmented_labels
-
-
-def extend_dataset(
-    path: str,
-    target_path: str,
-    images: np.ndarray,
-    labels: np.ndarray,
-    overwrite: bool = True,
-) -> None:
-
-    target_path = Path(target_path)
-
-    if not target_path.is_file():
-        shutil.copy(Path(path), target_path)
-    elif not overwrite:
-        raise FileExistsError(
-            "This file already exists. Set 'overwrite = True' to overwrite the file!"
-        )
-
-    with h5py.File(target_path, mode="a") as hf:
-
-        images_h5 = hf["images"]
-        labels_h5 = hf["ans"]
-
-        original_size = images_h5.shape[0]
-
-        images_h5.resize(original_size + images.shape[0], axis=0)
-        labels_h5.resize(original_size + labels.shape[0], axis=0)
-
-        images_h5[original_size:] = images
-        labels_h5[original_size:] = labels
