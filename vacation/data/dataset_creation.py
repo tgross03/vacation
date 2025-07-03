@@ -4,16 +4,14 @@ import warnings
 from hashlib import file_digest
 from pathlib import Path
 
-from tqdm.auto import tqdm
-
 import h5py
 import numpy as np
 import requests
 from sklearn.model_selection import train_test_split as split
+from tqdm.auto import tqdm
 
 
 def generate_dataset(location: Path, redownload: bool = False, overwrite: bool = True):
-
     url = "https://zenodo.org/records/10845026/files/Galaxy10_DECals.h5"
 
     if not isinstance(location, Path):
@@ -62,7 +60,6 @@ def generate_dataset(location: Path, redownload: bool = False, overwrite: bool =
     gc.collect()
 
     with h5py.File(target, "r") as hf:
-
         print("Reading image data ...")
         images = np.asarray(hf["images"], dtype=np.float32)
         print(
@@ -111,7 +108,6 @@ def extend_dataset(
     copy_original: bool = True,
     overwrite: bool = False,
 ) -> None:
-
     target_path = Path(target_path)
 
     if not target_path.is_file():
@@ -122,7 +118,6 @@ def extend_dataset(
         )
 
     with h5py.File(target_path, mode="a") as hf:
-
         images_h5 = hf["images"]
         labels_h5 = hf["ans"]
 
@@ -136,9 +131,15 @@ def extend_dataset(
 
 
 def _save_h5(path: Path, X: np.ndarray, y: np.ndarray):
-
     if path.exists():
-        extend_dataset(path=None, target_path=path, images=X, labels=y, copy_original=False, overwrite=True)
+        extend_dataset(
+            path=None,
+            target_path=path,
+            images=X,
+            labels=y,
+            copy_original=False,
+            overwrite=True,
+        )
     else:
         with h5py.File(path, "w") as f:
             f.create_dataset(
@@ -169,11 +170,9 @@ def train_test_split(
     pack_size: int = None,
     overwrite: bool = False,
 ):
-
     path = Path(path)
 
     with h5py.File(path, "r") as hf:
-
         labels = np.asarray(hf["ans"], dtype=np.uint8)
 
         train_idx, test_idx = split(
@@ -192,10 +191,14 @@ def train_test_split(
         test_idx = np.sort(test_idx)
 
         if pack_size:
-            training_pack_idx = zip(np.arange(0, train_idx.size, pack_size),
-                           np.arange(pack_size, train_idx.size + pack_size, pack_size))
-            test_pack_idx = zip(np.arange(0, train_idx.size, pack_size),
-                           np.arange(pack_size, train_idx.size + pack_size, pack_size))
+            training_pack_idx = zip(
+                np.arange(0, train_idx.size, pack_size),
+                np.arange(pack_size, train_idx.size + pack_size, pack_size),
+            )
+            test_pack_idx = zip(
+                np.arange(0, train_idx.size, pack_size),
+                np.arange(pack_size, train_idx.size + pack_size, pack_size),
+            )
             train_idx = [train_idx[i:j] for i, j in training_pack_idx]
             test_idx = [test_idx[i:j] for i, j in test_pack_idx]
         else:
@@ -219,7 +222,10 @@ def train_test_split(
                 del X_train
                 del y_train
         else:
-            print("Training dataset already exists. Skipping creation. Set 'overwrite = True' to overwrite!")
+            print(
+                "Training dataset already exists. Skipping creation. "
+                "Set 'overwrite = True' to overwrite!"
+            )
 
         if not test_path.exists() or overwrite:
             for idx_pgk in tqdm(test_idx, desc="Saving test data"):
@@ -233,6 +239,9 @@ def train_test_split(
                 del X_test
                 del y_test
         else:
-            print("Test dataset already exists. Skipping creation. Set 'overwrite = True' to overwrite!")
+            print(
+                "Test dataset already exists. Skipping creation. "
+                "Set'overwrite = True' to overwrite!"
+            )
 
     return train_path, test_path
