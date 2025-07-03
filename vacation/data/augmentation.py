@@ -65,7 +65,7 @@ def augment_dataset(
     path: str,
     target_path: str,
     random_offsets: bool = True,
-    offset_ratio: float = 0.95,
+    offset_ratio: float = 0.02,
     seed: int | None = None,
     overwrite: bool = False,
 ):
@@ -79,9 +79,8 @@ def augment_dataset(
     for i in tqdm(np.arange(len(counts))):
         label, count = labels[i], counts[i]
         if count < min_count:
-            count = min_count + rng.integers(
-                -min_count * offset_ratio, min_count * offset_ratio, size=1
-            )
+            offset = int(np.round(min_count * offset_ratio))
+            count = min_count + rng.integers(-offset, offset)
             augmented_images, augmented_labels = augment_dataset_class(
                 path=path,
                 class_index=label,
@@ -92,7 +91,7 @@ def augment_dataset(
                 target_path=target_path,
                 images=augmented_images,
                 labels=augmented_labels,
-                overwrite=overwrite,
+                overwrite=True,
             )
 
             del augmented_images
