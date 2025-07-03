@@ -1,11 +1,10 @@
-import shutil
-from pathlib import Path
-
 import h5py
 import numpy as np
 import torch
 import torchvision.transforms.v2 as transforms
 from tqdm.auto import tqdm
+
+from vacation.data import extend_dataset
 
 
 def _numpy_to_tensor(array: np.ndarray, device: str = "cuda") -> torch.Tensor:
@@ -27,7 +26,7 @@ _transform = transforms.Compose(
 )
 
 
-def augment_dataset(
+def augment_dataset_class(
     path: str,
     class_index: int,
     target_count: int = 2600,
@@ -36,6 +35,7 @@ def augment_dataset(
 ) -> tuple[np.ndarray, np.ndarray]:
 
     rng = np.random.default_rng(seed=seed)
+    torch.manual_seed(seed=rng.integers(low=0, high=2**32 - 1))
 
     with h5py.File(path, "r") as hf:
 
@@ -59,3 +59,31 @@ def augment_dataset(
             )
 
     return augmented_images, augmented_labels
+
+def augment_dataset(path: str, target_path: str, random_offsets: bool = True, offset_ratio: float = 0.95, seed: int | None = None, overwrite: bool = False):
+
+    rng = np.random.default_rng(seed=seed)
+
+    with h5py.File(path, "r") as hf:
+        labels, counts = np.unique(hf["ans"], return_counts=True)
+
+    min_count = int(np.round(np.max(counts) * 1e-2) * 1e2)
+    for i in tqdm(np.arange(len(counts))):
+        label, count = labels[i], counts[i]
+        if count < min_count:
+            count = min_count + rng.integers(-min_count * offset_ratio, min_count * offset_ratio, size=1)
+            augmented_images, augmented_labels = augment_dataset_class(
+                path=path,
+                class_index=label,
+                target_count=count,
+            )
+            extend_dataset(
+                path=path,
+                target_path=target_path,
+                images=augmented_images,
+                labels=augmented_labels,
+                overwrite=overwrite,
+            )
+
+            del augmented_images
+            del augmented_labels

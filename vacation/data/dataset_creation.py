@@ -161,6 +161,8 @@ def _save_h5(path: Path, X: np.ndarray, y: np.ndarray):
 def train_test_split(
     path: str,
     test_size: float = 0.2,
+    test_type: str = "test",
+    name_prefix: str | None = None,
     random_state: int | None = None,
     shuffle: bool = True,
     stratify: bool = True,
@@ -200,8 +202,10 @@ def train_test_split(
             train_idx = [train_idx]
             test_idx = [test_idx]
 
-        train_path = path.parent / (path.stem + f"_train.h5")
-        test_path = path.parent / (path.stem + f"_test.h5")
+        train_path = path.parent / (path.stem + "_train.h5")
+
+        test_stem = name_prefix if name_prefix else path.stem
+        test_path = path.parent / (test_stem + f"_{test_type}.h5")
 
         if not train_path.exists() or overwrite:
             for idx_pgk in tqdm(train_idx, desc="Loading and saving training data"):
