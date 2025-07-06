@@ -5,10 +5,11 @@ from dataclasses import dataclass
 import torch
 from sklearn.metrics import accuracy_score, f1_score
 from torch import nn, optim
+from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
 from vacation.data import GalaxyDataset
-from torch.utils.data import DataLoader
+
 
 @dataclass
 class Metric:
@@ -150,7 +151,12 @@ class VCNN(nn.Module):
             # Calculate metrics
             for name, metric in self._metrics.items():
                 metric_vals[name] = torch.cat(
-                    [metric_vals[name], metric.func(y_true=y.detach().cpu(), y_pred=y_pred.detach().cpu())]
+                    [
+                        metric_vals[name],
+                        metric.func(
+                            y_true=y.detach().cpu(), y_pred=y_pred.detach().cpu()
+                        ),
+                    ]
                 )
 
         # Append average of metric values from all training steps
@@ -172,12 +178,22 @@ class VCNN(nn.Module):
             for X, y in tqdm(valid_loader, desc=f"Validating epoch {epoch}"):
                 y_pred = self.model(X)
 
-                loss_vals = torch.cat([loss_vals, self._loss_func(y_pred.detach().cpu(), y.detach().cpu())])
+                loss_vals = torch.cat(
+                    [
+                        loss_vals,
+                        self._loss_func(y_pred.detach().cpu(), y.detach().cpu()),
+                    ]
+                )
 
                 # Calculate metrics
                 for name, metric in self._metrics.items():
                     metric_vals[name] = torch.cat(
-                        [metric_vals[name], metric.func(y_true=y.detach().cpu(), y_pred=y_pred.detach().cpu())]
+                        [
+                            metric_vals[name],
+                            metric.func(
+                                y_true=y.detach().cpu(), y_pred=y_pred.detach().cpu()
+                            ),
+                        ]
                     )
 
             # Append average of metric values from all validation steps
@@ -196,9 +212,13 @@ class VCNN(nn.Module):
         summarize: bool = True,
     ):
 
-        train_loader = DataLoader(train_dataset, batch_size=self._train_batch_size, shuffle=True)
-        valid_loader = DataLoader(valid_dataset, batch_size=self._valid_batch_size, shuffle=True)
-        
+        train_loader = DataLoader(
+            train_dataset, batch_size=self._train_batch_size, shuffle=True
+        )
+        valid_loader = DataLoader(
+            valid_dataset, batch_size=self._valid_batch_size, shuffle=True
+        )
+
         for i in torch.arange(1, n_epochs + 1):
             self._train_epoch(epoch=i, train_loader=train_loader)
             self._valid_epoch(epoch=i, valid_loader=valid_loader)
