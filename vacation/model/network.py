@@ -2,21 +2,20 @@ import typing
 from collections.abc import Callable
 from dataclasses import dataclass
 
+import numpy as np
 import torch
-from sklearn.metrics import accuracy_score, precision_score, f1_score, recall_score
+from sklearn.metrics import accuracy_score  # , f1_score, precision_score, recall_score
 from torch import nn, optim
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
 from vacation.data import GalaxyDataset
 
-import numpy as np
-
 
 @dataclass
 class Metric:
     _func: Callable | None
-    func_args: dict = {},
+    func_args: dict = ({},)
     train_vals: torch.Tensor = torch.Tensor([])
     valid_vals: torch.Tensor = torch.Tensor([])
 
@@ -30,7 +29,7 @@ class Metric:
             self.valid_vals = torch.cat([self.valid_vals, torch.Tensor([valid_val])])
 
     def as_exportable(self):
-        return [train_vals.numpy(), valid_vals.numpy()]
+        return [self.train_vals.numpy(), self.valid_vals.numpy()]
 
 
 DEFAULT_METRICS = {
@@ -85,7 +84,9 @@ class VCNN(nn.Module):
         # Metrics
 
         metric_keys = list(metrics.keys())
-        metrics = [Metric(_func=func[0], func_args=func[1]) for key, func in metrics.items()]
+        metrics = [
+            Metric(_func=func[0], func_args=func[1]) for key, func in metrics.items()
+        ]
 
         self._metrics: typing.Dict[str, Metric] = dict(zip(metric_keys, metrics))
 
@@ -150,9 +151,19 @@ class VCNN(nn.Module):
     def forward(self, X: torch.Tensor):
         return self.model(X)
 
-    def init_data(self, train_path: str, valid_path: str, train_args: dict = {}, valid_args: dict = {}):
-        self._train_dataset = GalaxyDataset(path=train_path, device=self._device, **train_args)
-        self._valid_dataset = GalaxyDataset(path=valid_path, device=self._device, **valid_args)
+    def init_data(
+        self,
+        train_path: str,
+        valid_path: str,
+        train_args: dict = {},
+        valid_args: dict = {},
+    ):
+        self._train_dataset = GalaxyDataset(
+            path=train_path, device=self._device, **train_args
+        )
+        self._valid_dataset = GalaxyDataset(
+            path=valid_path, device=self._device, **valid_args
+        )
 
     def _train_epoch(self, epoch: int, train_loader: torch.utils.data.DataLoader):
 
@@ -174,9 +185,14 @@ class VCNN(nn.Module):
                 metric_vals[name] = torch.cat(
                     [
                         metric_vals[name],
-                        torch.Tensor([metric.func(
-                            y_true=y.detach().cpu(), y_pred=y_pred.detach().cpu().argmax(dim=1)
-                        )]),
+                        torch.Tensor(
+                            [
+                                metric.func(
+                                    y_true=y.detach().cpu(),
+                                    y_pred=y_pred.detach().cpu().argmax(dim=1),
+                                )
+                            ]
+                        ),
                     ]
                 )
 
@@ -211,9 +227,14 @@ class VCNN(nn.Module):
                     metric_vals[name] = torch.cat(
                         [
                             metric_vals[name],
-                            torch.Tensor([metric.func(
-                                y_true=y.detach().cpu(), y_pred=y_pred.detach().cpu().argmax(dim=1)
-                            )]),
+                            torch.Tensor(
+                                [
+                                    metric.func(
+                                        y_true=y.detach().cpu(),
+                                        y_pred=y_pred.detach().cpu().argmax(dim=1),
+                                    )
+                                ]
+                            ),
                         ]
                     )
 
@@ -232,8 +253,10 @@ class VCNN(nn.Module):
     ):
 
         if not self._train_dataset or not self._valid_dataset:
-            raise AttributeError("There were no datasets initialized! "
-                                 "Use the VCNN.init_data method to initialize the data!")
+            raise AttributeError(
+                "There were no datasets initialized! "
+                "Use the VCNN.init_data method to initialize the data!"
+            )
 
         train_loader = DataLoader(
             self._train_dataset, batch_size=self._train_batch_size, shuffle=True
@@ -250,19 +273,19 @@ class VCNN(nn.Module):
     def save_state(self, path: str):
 
         if not self._train_dataset or not self._valid_dataset:
-            raise AttributeError("There were no datasets initialized! "
-                                 "Use the VCNN.init_data method to initialize the data!")
+            raise AttributeError(
+                "There were no datasets initialized! "
+                "Use the VCNN.init_data method to initialize the data!"
+            )
 
         state = {
-                "epoch": self._epoch,
-                "train_dataset": self._train_dataset.path,
-                "valid_dataset": self._valid_dataset.path,
-                "model_state_dict": self._model.state_dict(),
-                "optimizer_state_dict": self._optimizer.state_dict(),
-                "loss": self._loss_metric.as_exportable(),
+            "epoch": self._epoch,
+            "train_dataset": self._train_dataset.path,
+            "valid_dataset": self._valid_dataset.path,
+            "model_state_dict": self._model.state_dict(),
+            "optimizer_state_dict": self._optimizer.state_dict(),
+            "loss": self._loss_metric.as_exportable(),
         }
 
         for key, metric in self._metrics:
             state[key] = metric.as_exportable()
-
-

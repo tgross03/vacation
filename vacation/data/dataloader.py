@@ -21,7 +21,7 @@ def format_bytes(byte: int) -> str:
     closest_base = np.floor(np.log10(byte))
     prefix = _unit_prefix[np.max([int(closest_base // 3), 0])]
     return f"{byte * 10**(-(closest_base - closest_base % 3))} {prefix}B"
-    
+
 
 class DataCache:
     def __init__(self, max_size, cleaning_policy):
@@ -88,13 +88,11 @@ class DataCache:
 
     def __len__(self):
         return len(self._records)
-    
+
     def add(self, uid, data):
         record = dict(
             data=data,
-            size=int(
-                sys.getsizeof(data.untyped_storage())
-            ),
+            size=int(sys.getsizeof(data.untyped_storage())),
         )
 
         try:
@@ -103,7 +101,10 @@ class DataCache:
             free_memory = np.infty
 
         MAX_ITER = 10
-        while self._memsize + record["size"] > self._max_size or free_memory < record["size"] * 1.5:
+        while (
+            self._memsize + record["size"] > self._max_size
+            or free_memory < record["size"] * 1.5
+        ):
             if MAX_ITER <= 0:
                 warnings.warn(
                     f"The record with the uid {uid} could not be cached because it is too large! "
