@@ -3,30 +3,41 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import torch
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import accuracy_score, precision_score, f1_score, recall_score
 from torch import nn, optim
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
 from vacation.data import GalaxyDataset
 
+import numpy as np
+
 
 @dataclass
 class Metric:
-    func: Callable | None
+    _func: Callable | None
+    func_args: dict = {},
     train_vals: torch.Tensor = torch.Tensor([])
     valid_vals: torch.Tensor = torch.Tensor([])
 
-    def append(self, train_val: float | None, valid_val: float | None):
+    def func(self, y_true, y_pred):
+        return self._func(y_true=y_true, y_pred=y_pred, **self.func_args)
+
+    def append(self, train_val: float | None = None, valid_val: float | None = None):
         if train_val:
             self.train_vals = torch.cat([self.train_vals, torch.Tensor([train_val])])
         if valid_val:
             self.valid_vals = torch.cat([self.valid_vals, torch.Tensor([valid_val])])
 
+    def as_exportable(self):
+        return [train_vals.numpy(), valid_vals.numpy()]
+
 
 DEFAULT_METRICS = {
-    "accuracy": accuracy_score,
-    "f1": f1_score,
+    "accuracy": [accuracy_score, {}],
+    # "precision": [precision_score, {"average": "samples"}],
+    # "recall": [recall_score, {"average": "samples"}],
+    # "f1": [f1_score, {"average": "samples"}],
 }
 
 
@@ -44,8 +55,8 @@ class VCNN(nn.Module):
         activation_func: Callable,
         learning_rate: float,
         loss_func: Callable = torch.nn.CrossEntropyLoss,
-        metrics: typing.Dict[str, Callable] = DEFAULT_METRICS,
-        seed: int = 42,
+        metrics: typing.Dict[str, [Callable, dict]] = DEFAULT_METRICS,
+        seed: int = None,
         device: str = "cuda",
     ):
         super().__init__()
@@ -66,17 +77,19 @@ class VCNN(nn.Module):
 
         # Training parameters
         self._loss_func: Callable = loss_func()
-        self._seed: int = seed
+
+        rng = np.random.default_rng(seed=seed)
+        self._seed: int = rng.integers(low=0, high=2**32 - 1)
         self._device: str = device
 
         # Metrics
 
         metric_keys = list(metrics.keys())
-        metrics = [Metric(func=func) for key, func in metrics.items()]
+        metrics = [Metric(_func=func[0], func_args=func[1]) for key, func in metrics.items()]
 
         self._metrics: typing.Dict[str, Metric] = dict(zip(metric_keys, metrics))
 
-        self._loss_metric: Metric = Metric(func=None)
+        self._loss_metric: Metric = Metric(_func=None)
 
         # Model definition
         self.model = nn.Sequential(
@@ -130,8 +143,16 @@ class VCNN(nn.Module):
 
         self._optimizer: optim.Optimizer = optimizer(self.parameters(), lr=self._lr)
 
+        self._epoch = 0
+        self._train_dataset: GalaxyDataset | None = None
+        self._valid_dataset: GalaxyDataset | None = None
+
     def forward(self, X: torch.Tensor):
         return self.model(X)
+
+    def init_data(self, train_path: str, valid_path: str, train_args: dict = {}, valid_args: dict = {}):
+        self._train_dataset = GalaxyDataset(path=train_path, device=self._device, **train_args)
+        self._valid_dataset = GalaxyDataset(path=valid_path, device=self._device, **valid_args)
 
     def _train_epoch(self, epoch: int, train_loader: torch.utils.data.DataLoader):
 
@@ -153,15 +174,15 @@ class VCNN(nn.Module):
                 metric_vals[name] = torch.cat(
                     [
                         metric_vals[name],
-                        metric.func(
-                            y_true=y.detach().cpu(), y_pred=y_pred.detach().cpu()
-                        ),
+                        torch.Tensor([metric.func(
+                            y_true=y.detach().cpu(), y_pred=y_pred.detach().cpu().argmax(dim=1)
+                        )]),
                     ]
                 )
 
         # Append average of metric values from all training steps
         for name, metric in self._metrics.items():
-            metric.append(train_vals=metric_vals[name].mean())
+            metric.append(train_val=metric_vals[name].mean())
 
         # Append loss value
         self._loss_metric.append(train_val=loss.cpu().detach())
@@ -181,7 +202,7 @@ class VCNN(nn.Module):
                 loss_vals = torch.cat(
                     [
                         loss_vals,
-                        self._loss_func(y_pred.detach().cpu(), y.detach().cpu()),
+                        self._loss_func(y_pred.detach().cpu(), y.detach().cpu())[None],
                     ]
                 )
 
@@ -190,9 +211,9 @@ class VCNN(nn.Module):
                     metric_vals[name] = torch.cat(
                         [
                             metric_vals[name],
-                            metric.func(
-                                y_true=y.detach().cpu(), y_pred=y_pred.detach().cpu()
-                            ),
+                            torch.Tensor([metric.func(
+                                y_true=y.detach().cpu(), y_pred=y_pred.detach().cpu().argmax(dim=1)
+                            )]),
                         ]
                     )
 
@@ -205,20 +226,43 @@ class VCNN(nn.Module):
     def train_epochs(
         self,
         n_epochs: int,
-        train_dataset: GalaxyDataset,
-        valid_dataset: GalaxyDataset,
         save_name: str | None = None,
         checkpoint_path: str | None = None,
         summarize: bool = True,
     ):
 
+        if not self._train_dataset or not self._valid_dataset:
+            raise AttributeError("There were no datasets initialized! "
+                                 "Use the VCNN.init_data method to initialize the data!")
+
         train_loader = DataLoader(
-            train_dataset, batch_size=self._train_batch_size, shuffle=True
+            self._train_dataset, batch_size=self._train_batch_size, shuffle=True
         )
         valid_loader = DataLoader(
-            valid_dataset, batch_size=self._valid_batch_size, shuffle=True
+            self._valid_dataset, batch_size=self._valid_batch_size, shuffle=True
         )
 
         for i in torch.arange(1, n_epochs + 1):
             self._train_epoch(epoch=i, train_loader=train_loader)
             self._valid_epoch(epoch=i, valid_loader=valid_loader)
+
+    # not functional
+    def save_state(self, path: str):
+
+        if not self._train_dataset or not self._valid_dataset:
+            raise AttributeError("There were no datasets initialized! "
+                                 "Use the VCNN.init_data method to initialize the data!")
+
+        state = {
+                "epoch": self._epoch,
+                "train_dataset": self._train_dataset.path,
+                "valid_dataset": self._valid_dataset.path,
+                "model_state_dict": self._model.state_dict(),
+                "optimizer_state_dict": self._optimizer.state_dict(),
+                "loss": self._loss_metric.as_exportable(),
+        }
+
+        for key, metric in self._metrics:
+            state[key] = metric.as_exportable()
+
+

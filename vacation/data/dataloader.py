@@ -14,6 +14,14 @@ from torch.utils.data import Dataset
 VALID_UNIT_PREFIXES = {"K": 3, "M": 6, "G": 9, "T": 12, "P": 15}
 CACHE_CLEANING_POLICIES = ["oldest", "youngest", "largest"]
 
+_unit_prefix = ["", "k", "M", "G", "T", "P", "E"]
+
+
+def format_bytes(byte: int) -> str:
+    closest_base = np.floor(np.log10(byte))
+    prefix = _unit_prefix[np.max([int(closest_base // 3), 0])]
+    return f"{byte * 10**(-(closest_base - closest_base % 3))} {prefix}B"
+    
 
 class DataCache:
     def __init__(self, max_size, cleaning_policy):
@@ -68,7 +76,7 @@ class DataCache:
                 f"Valid values are {CACHE_CLEANING_POLICIES}"
             )
 
-        self.cleaning_policy = cleaning_policy
+        self._cleaning_policy = cleaning_policy
 
     def __getitem__(self, i):
         record = self._records[str(i)] if str(i) in self._records else None
@@ -76,25 +84,26 @@ class DataCache:
         if record is None:
             return None
 
-        return record["data"][0]
+        return record["data"]
 
     def __len__(self):
         return len(self._records)
-
+    
     def add(self, uid, data):
         record = dict(
             data=data,
             size=int(
-                data[0].nelement() * data[0].element_size()
-                + sys.getsizeof(data[0])
-                + np.sum([sys.getsizeof(d) for d in data[1]])
-                + sys.getsizeof(data[1])
-                + sys.getsizeof(data[2])
+                sys.getsizeof(data.untyped_storage())
             ),
         )
 
+        try:
+            free_memory = torch.cuda.mem_get_info(device=data.device)[0]
+        except ValueError:
+            free_memory = np.infty
+
         MAX_ITER = 10
-        while self._memsize + record["size"] > self._max_size:
+        while self._memsize + record["size"] > self._max_size or free_memory < record["size"] * 1.5:
             if MAX_ITER <= 0:
                 warnings.warn(
                     f"The record with the uid {uid} could not be cached because it is too large! "
@@ -108,9 +117,11 @@ class DataCache:
         self._records[str(uid)] = record
         self._memsize += record["size"]
 
+        # print(f"Added image. Current cache size: {format_bytes(self._memsize + int(263*1e6))}")
+
     def clean(self):
         uid = 0
-        match self.cleaning_policy:
+        match self._cleaning_policy:
             case "oldest":
                 uid = self._timeline[0]
             case "youngest":
@@ -129,12 +140,14 @@ class DataCache:
         self._memsize -= record["size"]
         self._records.pop(str(uid), None)
 
+        # print(f"Removed image. Current cache size: {format_bytes(self._memsize + int(263*1e6))}")
+
     def clear(self):
         del self._records
         del self._timeline
         del self._memsize
 
-        return self(self.max_size, self.cleaning_policy)
+        return self(self._max_size, self._cleaning_policy)
 
 
 CLASS_NAMES = [
