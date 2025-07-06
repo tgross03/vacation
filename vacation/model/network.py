@@ -7,6 +7,8 @@ from sklearn.metrics import accuracy_score, f1_score
 from torch import nn, optim
 from tqdm.auto import tqdm
 
+from vacation.data import GalaxyDataset
+from torch.utils.data import DataLoader
 
 @dataclass
 class Metric:
@@ -58,8 +60,7 @@ class VCNN(nn.Module):
         self._out_channels: list[int] = out_channels
         self._dropout_rates: list[float] = dropout_rates
         self._lin_out_features: list[int] = lin_out_features
-        self._optimizer: optim.Optimizer = optimizer
-        self._activation_func: Callable = (activation_func,)
+        self._activation_func: Callable = activation_func
         self._lr: float = learning_rate
 
         # Training parameters
@@ -97,7 +98,7 @@ class VCNN(nn.Module):
             ),
             self._activation_func(),
             nn.Dropout2d(p=self._dropout_rates[1]),
-            nn.MaxPool2d(kernel_size=3, padding=2, stride=2),
+            nn.MaxPool2d(kernel_size=2, padding=0, stride=2),
             nn.Conv2d(
                 in_channels=self._out_channels[1],
                 out_channels=self._out_channels[2],
@@ -117,7 +118,7 @@ class VCNN(nn.Module):
             ),
             self._activation_func(),
             nn.Linear(
-                in_features=self.self._lin_out_features[1],
+                in_features=self._lin_out_features[1],
                 out_features=self._num_labels,
             ),
         )
@@ -126,72 +127,78 @@ class VCNN(nn.Module):
         torch.manual_seed(self._seed)
         self.to(self._device)
 
-        def forward(self, X: torch.Tensor):
-            return self.model(X)
+        self._optimizer: optim.Optimizer = optimizer(self.parameters(), lr=self._lr)
 
-        def _train_epoch(self, epoch: int, train_loader: torch.utils.data.DataLoader):
+    def forward(self, X: torch.Tensor):
+        return self.model(X)
 
-            metric_vals = dict(
-                zip(self._metrics.keys(), [torch.Tensor()] * len(self._metrics.keys()))
-            )
+    def _train_epoch(self, epoch: int, train_loader: torch.utils.data.DataLoader):
 
-            for X, y in tqdm(train_loader, desc=f"Training epoch {epoch}"):
-                self._optimizer.zero_grad()
+        metric_vals = dict(
+            zip(self._metrics.keys(), [torch.Tensor()] * len(self._metrics.keys()))
+        )
 
-                y_pred = self._model(X)
-                loss = self._loss_func(y_pred, y)
-                loss.backward()
+        for X, y in tqdm(train_loader, desc=f"Training epoch {epoch}"):
+            self._optimizer.zero_grad()
 
-                self._optimizer.step()
+            y_pred = self.model(X)
+            loss = self._loss_func(y_pred, y)
+            loss.backward()
+
+            self._optimizer.step()
+
+            # Calculate metrics
+            for name, metric in self._metrics.items():
+                metric_vals[name] = torch.cat(
+                    [metric_vals[name], metric.func(y_true=y.detach().cpu(), y_pred=y_pred.detach().cpu())]
+                )
+
+        # Append average of metric values from all training steps
+        for name, metric in self._metrics.items():
+            metric.append(train_vals=metric_vals[name].mean())
+
+        # Append loss value
+        self._loss_metric.append(train_val=loss.cpu().detach())
+
+    def _valid_epoch(self, epoch: int, valid_loader: torch.utils.data.DataLoader):
+        self.model.eval()
+        metric_vals = dict(
+            zip(self._metrics.keys(), [torch.Tensor()] * len(self._metrics.keys()))
+        )
+
+        loss_vals = torch.Tensor()
+
+        with torch.no_grad():
+            for X, y in tqdm(valid_loader, desc=f"Validating epoch {epoch}"):
+                y_pred = self.model(X)
+
+                loss_vals = torch.cat([loss_vals, self._loss_func(y_pred.detach().cpu(), y.detach().cpu())])
 
                 # Calculate metrics
                 for name, metric in self._metrics.items():
                     metric_vals[name] = torch.cat(
-                        [metric_vals[name], metric.func(y_true=y, y_pred=y_pred)]
+                        [metric_vals[name], metric.func(y_true=y.detach().cpu(), y_pred=y_pred.detach().cpu())]
                     )
 
-            # Append average of metric values from all training steps
+            # Append average of metric values from all validation steps
             for name, metric in self._metrics.items():
-                metric.append(train_vals=metric_vals[name].mean())
+                metric.append(valid_val=metric_vals[name].mean())
 
-            # Append loss value
-            self._loss_metric.append(train_val=loss.cpu().detach())
+            self._loss_metric.append(valid_val=loss_vals.mean())
 
-        def _valid_epoch(epoch: int, valid_loader: torch.utils.data.DataLoader):
-            self._model.eval()
-            metric_vals = dict(
-                zip(self._metrics.keys(), [torch.Tensor()] * len(self._metrics.keys()))
-            )
+    def train_epochs(
+        self,
+        n_epochs: int,
+        train_dataset: GalaxyDataset,
+        valid_dataset: GalaxyDataset,
+        save_name: str | None = None,
+        checkpoint_path: str | None = None,
+        summarize: bool = True,
+    ):
 
-            loss_vals = torch.Tensor()
-
-            with torch.no_grad():
-                for X, y in tqdm(valid_loader, desc=f"Validating epoch {epoch}"):
-                    y_pred = self._model(X)
-
-                    loss_vals = torch.cat([loss_vals, self._loss_func(y_pred, y)])
-
-                    # Calculate metrics
-                    for name, metric in self._metrics.items():
-                        metric_vals[name] = torch.cat(
-                            [metric_vals[name], metric.func(y_true=y, y_pred=y_pred)]
-                        )
-
-                # Append average of metric values from all validation steps
-                for name, metric in self._metrics.items():
-                    metric.append(valid_val=metric_vals[name].mean())
-
-                self._loss_metric.append(valid_val=loss_vals.mean())
-
-        def train_epochs(
-            self,
-            n_epochs: int,
-            train_loader: torch.utils.data.DataLoader,
-            valid_loader: torch.utils.data.DataLoader,
-            save_name: str | None = None,
-            checkpoint_path: str | None = None,
-            summarize: bool = True,
-        ):
-            for i in torch.arange(1, self.n_epochs + 1):
-                self._train_epoch(epoch=i, train_loader=train_loader)
-                self._valid_epoch(epoch=i, valid_loader=valid_loader)
+        train_loader = DataLoader(train_dataset, batch_size=self._train_batch_size, shuffle=True)
+        valid_loader = DataLoader(valid_dataset, batch_size=self._valid_batch_size, shuffle=True)
+        
+        for i in torch.arange(1, n_epochs + 1):
+            self._train_epoch(epoch=i, train_loader=train_loader)
+            self._valid_epoch(epoch=i, valid_loader=valid_loader)

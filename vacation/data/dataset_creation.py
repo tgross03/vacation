@@ -205,7 +205,8 @@ def train_test_split(
             train_idx = [train_idx]
             test_idx = [test_idx]
 
-        train_path = path.parent / (path.stem + "_train.h5")
+        train_stem = name_prefix if name_prefix else path.stem
+        train_path = path.parent / (train_stem + "_train.h5")
 
         test_stem = name_prefix if name_prefix else path.stem
         test_path = path.parent / (test_stem + f"_{test_type}.h5")
