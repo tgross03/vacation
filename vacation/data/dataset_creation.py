@@ -184,7 +184,7 @@ def train_test_split(
         )
 
         print(
-            f"Splitted index arrays: train -> {train_idx.size} | test -> {test_idx.size}"
+            f"Splitted index arrays: train -> {train_idx.size} | {test_type} -> {test_idx.size}"
         )
 
         train_idx = np.sort(train_idx)
