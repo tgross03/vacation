@@ -11,6 +11,8 @@ from tqdm.auto import tqdm
 
 from vacation.data import GalaxyDataset
 
+from torchinfo import summary
+
 
 @dataclass
 class Metric:
@@ -101,6 +103,7 @@ class VCNN(nn.Module):
                 padding=0,
                 stride=1,
             ),
+            nn.BatchNorm2d(num_features=self._out_channels[0]),
             self._activation_func(),
             nn.Dropout2d(p=self._dropout_rates[0]),
             nn.AvgPool2d(kernel_size=2, padding=0, stride=2),
@@ -111,6 +114,7 @@ class VCNN(nn.Module):
                 padding=0,
                 stride=1,
             ),
+            nn.BatchNorm2d(num_features=self._out_channels[1]),
             self._activation_func(),
             nn.Dropout2d(p=self._dropout_rates[1]),
             nn.MaxPool2d(kernel_size=2, padding=0, stride=2),
@@ -121,6 +125,7 @@ class VCNN(nn.Module):
                 padding=0,
                 stride=1,
             ),
+            nn.BatchNorm2d(num_features=self._out_channels[2]),
             self._activation_func(),
             nn.Dropout2d(p=self._dropout_rates[2]),
             nn.MaxPool2d(kernel_size=2, padding=0, stride=2),
@@ -153,17 +158,25 @@ class VCNN(nn.Module):
 
     def init_data(
         self,
-        train_path: str,
-        valid_path: str,
+        train_dataset: GalaxyDataset | str,
+        valid_dataset: GalaxyDataset | str,
         train_args: dict = {},
         valid_args: dict = {},
     ):
-        self._train_dataset = GalaxyDataset(
-            path=train_path, device=self._device, **train_args
-        )
-        self._valid_dataset = GalaxyDataset(
-            path=valid_path, device=self._device, **valid_args
-        )
+
+        if isinstance(train_dataset, str):
+            self._train_dataset = GalaxyDataset(
+                path=train_path, device=self._device, **train_args
+            )
+        else:
+            self._train_dataset = train_dataset
+
+        if isinstance(valid_dataset, str):
+            self._valid_dataset = GalaxyDataset(
+                path=valid_path, device=self._device, **valid_args
+            )
+        else:
+            self._valid_dataset = valid_dataset
 
     def _train_epoch(self, epoch: int, train_loader: torch.utils.data.DataLoader):
 
@@ -171,8 +184,9 @@ class VCNN(nn.Module):
             zip(self._metrics.keys(), [torch.Tensor()] * len(self._metrics.keys()))
         )
 
+        self.model.train()
+
         for X, y in tqdm(train_loader, desc=f"Training epoch {epoch}"):
-            self._optimizer.zero_grad()
 
             y_pred = self.model(X)
             loss = self._loss_func(y_pred, y)
@@ -201,6 +215,7 @@ class VCNN(nn.Module):
             metric.append(train_val=metric_vals[name].mean())
 
         # Append loss value
+        print(loss.cpu().detach())
         self._loss_metric.append(train_val=loss.cpu().detach())
 
     def _valid_epoch(self, epoch: int, valid_loader: torch.utils.data.DataLoader):
@@ -282,10 +297,13 @@ class VCNN(nn.Module):
             "epoch": self._epoch,
             "train_dataset": self._train_dataset.path,
             "valid_dataset": self._valid_dataset.path,
-            "model_state_dict": self._model.state_dict(),
+            "model_state_dict": self.model.state_dict(),
             "optimizer_state_dict": self._optimizer.state_dict(),
             "loss": self._loss_metric.as_exportable(),
         }
 
         for key, metric in self._metrics:
             state[key] = metric.as_exportable()
+
+    def summarize(self, input_dims: tuple[int] = (3, 256, 256)):
+        return summary(self, input_dims)

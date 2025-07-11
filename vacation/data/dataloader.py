@@ -118,8 +118,6 @@ class DataCache:
         self._records[str(uid)] = record
         self._memsize += record["size"]
 
-        # print(f"Added image. Current cache size: {format_bytes(self._memsize + int(263*1e6))}")
-
     def clean(self):
         uid = 0
         match self._cleaning_policy:
@@ -140,8 +138,6 @@ class DataCache:
         self._timeline = np.delete(self._timeline, np.where(self._timeline == uid))
         self._memsize -= record["size"]
         self._records.pop(str(uid), None)
-
-        # print(f"Removed image. Current cache size: {format_bytes(self._memsize + int(263*1e6))}")
 
     def clear(self):
         del self._records
@@ -171,6 +167,8 @@ class GalaxyDataset(Dataset):
         path: Path | str,
         device: str,
         cache_loaded: bool = True,
+        index_collection: np.typing.ArrayLike | None = None,
+        end_index: int = -1,
         max_cache_size: str = "3G",
         cache_cleaning_policy: str = "oldest",
     ):
@@ -179,7 +177,9 @@ class GalaxyDataset(Dataset):
         self.device: str = device
 
         self._hf: h5py._hl.files.File = h5py.File(self.path, "r")
-        self._labels = torch.from_numpy(self._hf["ans"][:]).to(self.device)
+        self._labels: torch.Tensor = torch.from_numpy(self._hf["ans"][:]).to(self.device)
+        self._end_idx: int = end_index
+        self._index_collection: np.typing.ArrayLike | None = index_collection
 
         if cache_loaded:
             self._cache = DataCache(max_cache_size, cache_cleaning_policy)
@@ -187,12 +187,21 @@ class GalaxyDataset(Dataset):
             self._cache = None
 
     def __len__(self) -> int:
-        return self._hf["images"].shape[0]
+        if self._index_collection is not None:
+            return len(self._index_collection)
+        else:
+            return self._hf["images"].shape[0] if self._end_idx == -1 else self._end_idx + 1
 
     def __getitem__(self, key: int) -> tuple[torch.Tensor, int]:
 
         if not isinstance(key, int):
             raise KeyError("The given key has to be an integer value!")
+
+        if key >= len(self):
+            raise KeyError("The given key is too large!")
+
+        if self._index_collection is not None:
+            key = self._index_collection[key]
 
         if self._cache is not None:
             cached_data = self._cache[key]
