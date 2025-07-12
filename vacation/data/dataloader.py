@@ -198,10 +198,10 @@ class GalaxyDataset(Dataset):
 
     def __getitem__(self, key: int) -> tuple[torch.Tensor, int]:
 
-        if not isinstance(key, int):
+        if not (isinstance(key, int) or isinstance(key, slice)):
             raise KeyError("The given key has to be an integer value!")
 
-        if key >= len(self):
+        if not isinstance(key, slice) and key >= len(self):
             raise KeyError("The given key is too large!")
 
         if self._index_collection is not None:

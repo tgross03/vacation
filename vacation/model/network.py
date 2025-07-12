@@ -11,7 +11,10 @@ from torch import nn, optim
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
+from pathlib import Path
+
 from vacation.data import GalaxyDataset
+import vacation
 
 from torchinfo import summary
 
@@ -55,6 +58,7 @@ class VCNN(nn.Module):
         optimizer: optim.Optimizer,
         activation_func: Callable,
         learning_rate: float,
+        weight_decay: float,
         img_size: int = 256,
         num_labels: int = 10,
         loss_func: Callable = torch.nn.CrossEntropyLoss,
@@ -77,6 +81,7 @@ class VCNN(nn.Module):
         self._lin_out_features: list[int] = lin_out_features
         self._activation_func: Callable = activation_func
         self._lr: float = learning_rate
+        self._weight_decay: float = weight_decay
 
         # Training parameters
         self._loss_func: Callable = loss_func()
@@ -86,7 +91,6 @@ class VCNN(nn.Module):
         self._device: str = device
 
         # Metrics
-
         metric_keys = list(metrics.keys())
         metrics = [
             Metric(_func=func[0], func_args=func[1]) for key, func in metrics.items()
@@ -107,8 +111,8 @@ class VCNN(nn.Module):
             ),
             nn.BatchNorm2d(num_features=self._out_channels[0]),
             self._activation_func(),
+            nn.MaxPool2d(kernel_size=2, padding=0, stride=2),
             nn.Dropout2d(p=self._dropout_rates[0]),
-            nn.AvgPool2d(kernel_size=2, padding=0, stride=2),
             nn.Conv2d(
                 in_channels=self._out_channels[0],
                 out_channels=self._out_channels[1],
@@ -118,19 +122,19 @@ class VCNN(nn.Module):
             ),
             nn.BatchNorm2d(num_features=self._out_channels[1]),
             self._activation_func(),
+            nn.MaxPool2d(kernel_size=2, padding=0, stride=2),
             nn.Dropout2d(p=self._dropout_rates[1]),
-            nn.MaxPool2d(kernel_size=2, padding=0, stride=2),
-            nn.Conv2d(
-                in_channels=self._out_channels[1],
-                out_channels=self._out_channels[2],
-                kernel_size=3,
-                padding=0,
-                stride=1,
-            ),
-            nn.BatchNorm2d(num_features=self._out_channels[2]),
-            self._activation_func(),
-            nn.Dropout2d(p=self._dropout_rates[2]),
-            nn.MaxPool2d(kernel_size=2, padding=0, stride=2),
+            # nn.Conv2d(
+            #     in_channels=self._out_channels[1],
+            #     out_channels=self._out_channels[2],
+            #     kernel_size=3,
+            #     padding=0,
+            #     stride=1,
+            # ),
+            # nn.BatchNorm2d(num_features=self._out_channels[2]),
+            # self._activation_func(),
+            # nn.MaxPool2d(kernel_size=2, padding=0, stride=2),
+            # nn.Dropout2d(p=self._dropout_rates[2]),
             nn.Flatten(),
             nn.LazyLinear(out_features=self._lin_out_features[0]),
             self._activation_func(),
@@ -149,7 +153,7 @@ class VCNN(nn.Module):
         torch.manual_seed(self._seed)
         self.to(self._device)
 
-        self._optimizer: optim.Optimizer = optimizer(self.parameters(), lr=self._lr)
+        self._optimizer: optim.Optimizer = optimizer(self.parameters(), lr=self._lr, weight_decay=weight_decay)
 
         self._epoch = 0
         self._train_dataset: GalaxyDataset | None = None
@@ -189,7 +193,7 @@ class VCNN(nn.Module):
         loss_vals = torch.Tensor()
 
         self.model.train()
-        prog = tqdm(train_loader, desc=f"Training epoch {epoch}", colour="#04a5e5")
+        prog = tqdm(train_loader, desc=f"Training epoch {epoch}", colour="#8caaee")
         for X, y in prog:
 
             self._optimizer.zero_grad()
@@ -239,7 +243,7 @@ class VCNN(nn.Module):
         loss_vals = torch.Tensor()
 
         with torch.no_grad():
-            prog = tqdm(valid_loader, desc=f"Validating epoch {epoch}", colour="#ea76cb")
+            prog = tqdm(valid_loader, desc=f"Validating epoch {epoch}", colour="#ca9ee6")
             for X, y in prog:
                 y_pred = self.model(X)
 
@@ -306,8 +310,8 @@ class VCNN(nn.Module):
             self._epoch += 1
             self._train_epoch(epoch=self._epoch, train_loader=train_loader)
             self._valid_epoch(epoch=self._epoch, valid_loader=valid_loader)
-
-    def save_state(self, path: str) -> None:
+    
+    def save_state(self, path: str, relative_to_package: bool = False) -> None:
 
         if not self._train_dataset or not self._valid_dataset:
             raise AttributeError(
@@ -320,9 +324,9 @@ class VCNN(nn.Module):
             # Dataset attributes
             "img_size": self._img_size,
             "num_labels": self._num_labels,
-            "train_dataset": str(self._train_dataset.path),
+            "train_dataset": str(self._train_dataset.path.absolute()),
             "train_args": self._train_dataset.get_args(),
-            "valid_dataset": str(self._valid_dataset.path),
+            "valid_dataset": str(self._valid_dataset.path.absolute()),
             "valid_args": self._valid_dataset.get_args(),
             # Optimizable Hyperparameters
             "train_batch_size": self._train_batch_size,
@@ -333,6 +337,7 @@ class VCNN(nn.Module):
             "optimizer": str(self._optimizer.__class__),
             "activation_func": str(self._activation_func),
             "lr": self._lr,
+            "weight_decay": self._weight_decay,
             "loss_func": str(self._loss_func.__class__),
             # Model & Optimizer
             "model_state_dict": self.model.state_dict(),
@@ -347,6 +352,11 @@ class VCNN(nn.Module):
         for key, metric in self._metrics.items():
             state[key] = metric.as_exportable()
 
+        if relative_to_package:
+            path = Path(vacation.__file__).parent.parent / path
+            path.parent.mkdir(exist_ok=True, parents=True)
+            path = str(path)
+
         torch.save(state, path)
 
     def summarize(self, input_dims: tuple[int] = (3, 256, 256)):
@@ -360,7 +370,11 @@ class VCNN(nn.Module):
              activation_func: Callable,
              loss_func: Callable = torch.nn.CrossEntropyLoss,
              metrics: typing.Dict[str, [Callable, dict]] = DEFAULT_METRICS,
+             relative_to_package: bool = False,
              ) -> "VCNN":
+
+        if relative_to_package:
+            path = str(Path(vacation.__file__).parent.parent / path)
 
         state = torch.load(path, weights_only=False)
 
@@ -385,6 +399,7 @@ class VCNN(nn.Module):
             optimizer=optimizer,
             activation_func=activation_func,
             learning_rate=state["lr"],
+            weight_decay=state["weight_decay"],
             img_size=state["img_size"],
             num_labels=state["num_labels"],
             loss_func=loss_func,
@@ -405,10 +420,7 @@ class VCNN(nn.Module):
 
         cls.load_state_dict(model_state_dict)
 
-        optimizer_state_dict = state["optimizer_state_dict"]
-        # optimizer_state_dict = {f"model.{key}": value for key, value in optimizer_state_dict.items()}
-
-        cls._optimizer.load_state_dict(optimizer_state_dict)
+        cls._optimizer.load_state_dict(state["optimizer_state_dict"])
 
         cls.init_data(train_dataset=state["train_dataset"],
                       valid_dataset=state["valid_dataset"],
