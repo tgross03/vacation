@@ -1,3 +1,5 @@
+import warnings
+
 import typing
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -21,17 +23,17 @@ class Metric:
     train_vals: torch.Tensor = torch.Tensor([])
     valid_vals: torch.Tensor = torch.Tensor([])
 
-    def func(self, y_true, y_pred):
+    def func(self, y_true, y_pred) -> float:
         return self._func(y_true=y_true, y_pred=y_pred, **self.func_args)
 
-    def append(self, train_val: float | None = None, valid_val: float | None = None):
+    def append(self, train_val: float | None = None, valid_val: float | None = None) -> None:
         if train_val:
-            self.train_vals = torch.cat([self.train_vals, torch.Tensor([train_val])])
+            self.train_vals = torch.cat([self.train_vals, torch.Tensor([train_val]).flatten()])
         if valid_val:
-            self.valid_vals = torch.cat([self.valid_vals, torch.Tensor([valid_val])])
+            self.valid_vals = torch.cat([self.valid_vals, torch.Tensor([valid_val]).flatten()])
 
-    def as_exportable(self):
-        return [self.train_vals.numpy(), self.valid_vals.numpy()]
+    def as_exportable(self) -> list[np.ndarray]:
+        return [self.train_vals, self.valid_vals]
 
 
 DEFAULT_METRICS = {
@@ -45,8 +47,6 @@ DEFAULT_METRICS = {
 class VCNN(nn.Module):
     def __init__(
         self,
-        img_size: int,
-        num_labels: int,
         train_batch_size: int,
         valid_batch_size: int,
         out_channels: list[int],
@@ -55,9 +55,11 @@ class VCNN(nn.Module):
         optimizer: optim.Optimizer,
         activation_func: Callable,
         learning_rate: float,
+        img_size: int = 256,
+        num_labels: int = 10,
         loss_func: Callable = torch.nn.CrossEntropyLoss,
         metrics: typing.Dict[str, [Callable, dict]] = DEFAULT_METRICS,
-        seed: int = None,
+        seed: int | None = None,
         device: str = "cuda",
     ):
         super().__init__()
@@ -153,7 +155,7 @@ class VCNN(nn.Module):
         self._train_dataset: GalaxyDataset | None = None
         self._valid_dataset: GalaxyDataset | None = None
 
-    def forward(self, X: torch.Tensor):
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
         return self.model(X)
 
     def init_data(
@@ -162,31 +164,35 @@ class VCNN(nn.Module):
         valid_dataset: GalaxyDataset | str,
         train_args: dict = {},
         valid_args: dict = {},
-    ):
+    ) -> None:
 
         if isinstance(train_dataset, str):
             self._train_dataset = GalaxyDataset(
-                path=train_path, device=self._device, **train_args
+                path=train_dataset, device=self._device, **train_args
             )
         else:
             self._train_dataset = train_dataset
 
         if isinstance(valid_dataset, str):
             self._valid_dataset = GalaxyDataset(
-                path=valid_path, device=self._device, **valid_args
+                path=valid_dataset, device=self._device, **valid_args
             )
         else:
             self._valid_dataset = valid_dataset
 
-    def _train_epoch(self, epoch: int, train_loader: torch.utils.data.DataLoader):
+    def _train_epoch(self, epoch: int, train_loader: torch.utils.data.DataLoader) -> None:
 
         metric_vals = dict(
             zip(self._metrics.keys(), [torch.Tensor()] * len(self._metrics.keys()))
         )
 
-        self.model.train()
+        loss_vals = torch.Tensor()
 
-        for X, y in tqdm(train_loader, desc=f"Training epoch {epoch}"):
+        self.model.train()
+        prog = tqdm(train_loader, desc=f"Training epoch {epoch}", colour="#04a5e5")
+        for X, y in prog:
+
+            self._optimizer.zero_grad()
 
             y_pred = self.model(X)
             loss = self._loss_func(y_pred, y)
@@ -210,15 +216,21 @@ class VCNN(nn.Module):
                     ]
                 )
 
+            loss_vals = torch.cat([loss_vals, loss.cpu().detach()[None]])
+
+            prog.set_postfix(self._get_progress_postfix(
+                loss=loss_vals.mean(),
+                accuracy=metric_vals["accuracy"].mean()
+            ))
+
         # Append average of metric values from all training steps
         for name, metric in self._metrics.items():
             metric.append(train_val=metric_vals[name].mean())
 
         # Append loss value
-        print(loss.cpu().detach())
-        self._loss_metric.append(train_val=loss.cpu().detach())
+        self._loss_metric.append(train_val=loss_vals.mean())
 
-    def _valid_epoch(self, epoch: int, valid_loader: torch.utils.data.DataLoader):
+    def _valid_epoch(self, epoch: int, valid_loader: torch.utils.data.DataLoader) -> None:
         self.model.eval()
         metric_vals = dict(
             zip(self._metrics.keys(), [torch.Tensor()] * len(self._metrics.keys()))
@@ -227,7 +239,8 @@ class VCNN(nn.Module):
         loss_vals = torch.Tensor()
 
         with torch.no_grad():
-            for X, y in tqdm(valid_loader, desc=f"Validating epoch {epoch}"):
+            prog = tqdm(valid_loader, desc=f"Validating epoch {epoch}", colour="#ea76cb")
+            for X, y in prog:
                 y_pred = self.model(X)
 
                 loss_vals = torch.cat(
@@ -253,11 +266,20 @@ class VCNN(nn.Module):
                         ]
                     )
 
+                prog.set_postfix(self._get_progress_postfix(
+                    loss=loss_vals.mean(),
+                    accuracy=metric_vals["accuracy"].mean()
+                ))
+
             # Append average of metric values from all validation steps
             for name, metric in self._metrics.items():
                 metric.append(valid_val=metric_vals[name].mean())
 
             self._loss_metric.append(valid_val=loss_vals.mean())
+
+    def _get_progress_postfix(self, loss: torch.Tensor, accuracy: torch.Tensor) -> dict:
+        return {"Loss": "{:.3f}".format(loss.numpy()),
+                "Accuracy": "{:.3f}".format(accuracy.numpy())}
 
     def train_epochs(
         self,
@@ -265,7 +287,7 @@ class VCNN(nn.Module):
         save_name: str | None = None,
         checkpoint_path: str | None = None,
         summarize: bool = True,
-    ):
+    ) -> None:
 
         if not self._train_dataset or not self._valid_dataset:
             raise AttributeError(
@@ -280,12 +302,12 @@ class VCNN(nn.Module):
             self._valid_dataset, batch_size=self._valid_batch_size, shuffle=True
         )
 
-        for i in torch.arange(1, n_epochs + 1):
-            self._train_epoch(epoch=i, train_loader=train_loader)
-            self._valid_epoch(epoch=i, valid_loader=valid_loader)
+        for _ in torch.arange(0, n_epochs):
+            self._epoch += 1
+            self._train_epoch(epoch=self._epoch, train_loader=train_loader)
+            self._valid_epoch(epoch=self._epoch, valid_loader=valid_loader)
 
-    # not functional
-    def save_state(self, path: str):
+    def save_state(self, path: str) -> None:
 
         if not self._train_dataset or not self._valid_dataset:
             raise AttributeError(
@@ -295,15 +317,105 @@ class VCNN(nn.Module):
 
         state = {
             "epoch": self._epoch,
-            "train_dataset": self._train_dataset.path,
-            "valid_dataset": self._valid_dataset.path,
+            # Dataset attributes
+            "img_size": self._img_size,
+            "num_labels": self._num_labels,
+            "train_dataset": str(self._train_dataset.path),
+            "train_args": self._train_dataset.get_args(),
+            "valid_dataset": str(self._valid_dataset.path),
+            "valid_args": self._valid_dataset.get_args(),
+            # Optimizable Hyperparameters
+            "train_batch_size": self._train_batch_size,
+            "valid_batch_size": self._valid_batch_size,
+            "out_channels": self._out_channels,
+            "dropout_rates": self._dropout_rates,
+            "lin_out_features": self._lin_out_features,
+            "optimizer": str(self._optimizer.__class__),
+            "activation_func": str(self._activation_func),
+            "lr": self._lr,
+            "loss_func": str(self._loss_func.__class__),
+            # Model & Optimizer
             "model_state_dict": self.model.state_dict(),
             "optimizer_state_dict": self._optimizer.state_dict(),
+            # Loss values
             "loss": self._loss_metric.as_exportable(),
+            # Utils
+            "seed": self._seed,
+            "device": self._device,
         }
 
-        for key, metric in self._metrics:
+        for key, metric in self._metrics.items():
             state[key] = metric.as_exportable()
 
+        torch.save(state, path)
+
     def summarize(self, input_dims: tuple[int] = (3, 256, 256)):
+        self.model.eval()
         return summary(self, input_dims)
+
+    @classmethod
+    def load(cls,
+             path: str,
+             optimizer: optim.Optimizer,
+             activation_func: Callable,
+             loss_func: Callable = torch.nn.CrossEntropyLoss,
+             metrics: typing.Dict[str, [Callable, dict]] = DEFAULT_METRICS,
+             ) -> "VCNN":
+
+        state = torch.load(path, weights_only=False)
+
+        if str(optimizer) != state["optimizer"]:
+            warnings.warn("The optimizer class does not match the saved class! "
+                "This can lead to unintended behaviour!")
+
+        if str(activation_func) != state["activation_func"]:
+            warnings.warn("The activation function class does not match the saved class! "
+                "This can lead to unintended behaviour!")
+
+        if str(loss_func) != state["loss_func"]:
+            warnings.warn("The loss function class does not match the saved class! "
+                "This can lead to unintended behaviour!")
+
+        cls = cls(
+            train_batch_size=state["train_batch_size"],
+            valid_batch_size=state["valid_batch_size"],
+            out_channels=state["out_channels"],
+            dropout_rates=state["dropout_rates"],
+            lin_out_features=state["lin_out_features"],
+            optimizer=optimizer,
+            activation_func=activation_func,
+            learning_rate=state["lr"],
+            img_size=state["img_size"],
+            num_labels=state["num_labels"],
+            loss_func=loss_func,
+            metrics=metrics,
+            seed=state["seed"],
+            device=state["device"],
+        )
+
+        for key, metric in cls._metrics.items():
+            cls._metrics[key].train_vals = state[key][0]
+            cls._metrics[key].valid_vals = state[key][1]
+
+        cls._loss_metric.train_vals = state["loss"][0]
+        cls._loss_metric.valid_vals = state["loss"][1]
+
+        model_state_dict = state["model_state_dict"]
+        model_state_dict = {f"model.{key}": value for key, value in model_state_dict.items()}
+
+        cls.load_state_dict(model_state_dict)
+
+        optimizer_state_dict = state["optimizer_state_dict"]
+        # optimizer_state_dict = {f"model.{key}": value for key, value in optimizer_state_dict.items()}
+
+        cls._optimizer.load_state_dict(optimizer_state_dict)
+
+        cls.init_data(train_dataset=state["train_dataset"],
+                      valid_dataset=state["valid_dataset"],
+                      train_args=state["train_args"],
+                      valid_args=state["valid_args"])
+
+        cls._epoch = state["epoch"]
+
+        return cls
+

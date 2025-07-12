@@ -7,6 +7,10 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from tqdm.auto import tqdm
+
+import matplotlib.pyplot as plt
+
 # Data Caching adapted from own previous project: simtools
 # (https://github.com/tgross03/simtools/blob/main/simtools/data/dataset.py)
 # Originally licensed under MIT License. Copyright (c) 2024, Tom Groß.
@@ -224,4 +228,68 @@ class GalaxyDataset(Dataset):
         return label, CLASS_NAMES[label]
 
     def get_labels(self) -> torch.Tensor:
-        return self._labels
+        if self._index_collection is None:
+            return self._labels[:self._end_idx]
+        else:
+            return self._labels[self._index_collection]
+
+    def get_args(self) -> dict:
+        return {
+                "cache_loaded": self._cache is not None,
+                "index_collection": self._index_collection,
+                "end_index": self._end_idx,
+                "max_cache_size": self._cache._max_size if self._cache else "3G",
+                "cache_cleaning_policy": self._cache._cleaning_policy if self._cache else "oldest",
+            }
+
+    def plot_examples(self,
+                      random_state: int | None = None,
+                      save_path: str | None = None,
+                      save_args: dict = {"bbox_inches": "tight"}):
+
+        rng = np.random.default_rng(seed=random_state)
+
+        labels, counts = np.unique(self.get_labels().cpu(), return_counts=True)
+
+        label_idx = np.zeros(len(CLASS_NAMES), dtype=np.int64)
+        for label in labels:
+            label_idx[label] = np.argwhere(self.get_labels().cpu() == label)[0][rng.integers(0, counts[label])]
+
+        fig, ax = plt.subplots(2, 5, figsize=(10, 5), layout="tight")
+        ax = ax.ravel()
+        for label in tqdm(labels, desc="Plotting images"):
+            ax[label].imshow(self[int(label_idx[label])][0].cpu().permute(1, 2, 0))
+            ax[label].set_title(CLASS_NAMES[label], fontsize="small")
+
+        if save_path:
+            fig.savefig(save_path, **save_args)
+
+    def plot_distribution(self,
+                          plot_args: dict = {
+                            "rwidth": 0.96,
+                            "facecolor": "#e64553",
+                          },
+                          save_path: str | None = None,
+                          save_args: dict = {"bbox_inches": "tight"}):
+
+        fig, ax = plt.subplots(layout="tight")
+
+        labels, counts = np.unique(self.get_labels().cpu(), return_counts=True)
+        _, bins, bars = ax.hist(self.get_labels().cpu(),
+                                bins=np.arange(0, 11),
+                                label=f"Total: {len(self)}",
+                                **plot_args
+                                )
+        ax.bar_label(bars)
+        ax.set_xticks(bins[:-1] + 0.5)
+        ax.set_xticklabels([plt.Text(bins[label] + 0.5, 0, label) 
+                            for label in labels])
+        ax.set_xlabel("Classes")
+        ax.set_ylabel("Counts")
+        ax.set_ylim(0, np.max(counts) * 1.1)
+        ax.legend()
+
+        if save_path:
+            fig.savefig(save_path, **save_args)
+
+        return fig, ax
