@@ -41,6 +41,8 @@ dependencies = [
   "scikit-image",
   "click",
   "pre-commit",
+  "optuna",
+  "optuna-dashboard"
 ]
 
 [project.scripts]
