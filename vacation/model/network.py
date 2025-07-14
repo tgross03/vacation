@@ -1,24 +1,20 @@
-import warnings
-
 import typing
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
+import optuna
 import torch
 from sklearn.metrics import accuracy_score  # , f1_score, precision_score, recall_score
 from torch import nn, optim
 from torch.utils.data import DataLoader
+from torchinfo import summary
 from tqdm.auto import tqdm
 
-from pathlib import Path
-
-from vacation.data import GalaxyDataset
 import vacation
+from vacation.data import GalaxyDataset
 
-from torchinfo import summary
-
-import optuna
 
 @dataclass
 class Metric:
@@ -30,11 +26,17 @@ class Metric:
     def func(self, y_true, y_pred) -> float:
         return self._func(y_true=y_true, y_pred=y_pred, **self.func_args)
 
-    def append(self, train_val: float | None = None, valid_val: float | None = None) -> None:
+    def append(
+        self, train_val: float | None = None, valid_val: float | None = None
+    ) -> None:
         if train_val:
-            self.train_vals = torch.cat([self.train_vals, torch.Tensor([train_val]).flatten()])
+            self.train_vals = torch.cat(
+                [self.train_vals, torch.Tensor([train_val]).flatten()]
+            )
         if valid_val:
-            self.valid_vals = torch.cat([self.valid_vals, torch.Tensor([valid_val]).flatten()])
+            self.valid_vals = torch.cat(
+                [self.valid_vals, torch.Tensor([valid_val]).flatten()]
+            )
 
     def as_exportable(self) -> list[np.ndarray]:
         return [self.train_vals, self.valid_vals]
@@ -139,7 +141,9 @@ class VCNN(nn.Module):
         torch.manual_seed(self._seed)
         self.to(self._device)
 
-        self._optimizer: optim.Optimizer = optimizer(self.parameters(), lr=self._lr, weight_decay=weight_decay)
+        self._optimizer: optim.Optimizer = optimizer(
+            self.parameters(), lr=self._lr, weight_decay=weight_decay
+        )
 
         self._epoch = 0
         self._train_dataset: GalaxyDataset | None = None
@@ -170,11 +174,12 @@ class VCNN(nn.Module):
         else:
             self._valid_dataset = valid_dataset
 
-    def _train_epoch(self, 
-                     epoch: int, 
-                     train_loader: torch.utils.data.DataLoader,
-                     show_progress: bool = True,
-                    ) -> None:
+    def _train_epoch(
+        self,
+        epoch: int,
+        train_loader: torch.utils.data.DataLoader,
+        show_progress: bool = True,
+    ) -> None:
 
         metric_vals = dict(
             zip(self._metrics.keys(), [torch.Tensor()] * len(self._metrics.keys()))
@@ -183,7 +188,12 @@ class VCNN(nn.Module):
         loss_vals = torch.Tensor()
 
         self.model.train()
-        prog = tqdm(train_loader, desc=f"Training epoch {epoch}", colour="#8caaee", disable=not show_progress)
+        prog = tqdm(
+            train_loader,
+            desc=f"Training epoch {epoch}",
+            colour="#8caaee",
+            disable=not show_progress,
+        )
         for X, y in prog:
 
             self._optimizer.zero_grad()
@@ -212,10 +222,11 @@ class VCNN(nn.Module):
 
             loss_vals = torch.cat([loss_vals, loss.cpu().detach()[None]])
 
-            prog.set_postfix(self._get_progress_postfix(
-                loss=loss_vals.mean(),
-                accuracy=metric_vals["accuracy"].mean()
-            ))
+            prog.set_postfix(
+                self._get_progress_postfix(
+                    loss=loss_vals.mean(), accuracy=metric_vals["accuracy"].mean()
+                )
+            )
 
         # Append average of metric values from all training steps
         for name, metric in self._metrics.items():
@@ -224,7 +235,12 @@ class VCNN(nn.Module):
         # Append loss value
         self._loss_metric.append(train_val=loss_vals.mean())
 
-    def _valid_epoch(self, epoch: int, valid_loader: torch.utils.data.DataLoader, show_progress: bool = True) -> None:
+    def _valid_epoch(
+        self,
+        epoch: int,
+        valid_loader: torch.utils.data.DataLoader,
+        show_progress: bool = True,
+    ) -> None:
         self.model.eval()
         metric_vals = dict(
             zip(self._metrics.keys(), [torch.Tensor()] * len(self._metrics.keys()))
@@ -233,7 +249,12 @@ class VCNN(nn.Module):
         loss_vals = torch.Tensor()
 
         with torch.no_grad():
-            prog = tqdm(valid_loader, desc=f"Validating epoch {epoch}", colour="#ca9ee6", disable=not show_progress)
+            prog = tqdm(
+                valid_loader,
+                desc=f"Validating epoch {epoch}",
+                colour="#ca9ee6",
+                disable=not show_progress,
+            )
             for X, y in prog:
                 y_pred = self.model(X)
 
@@ -260,10 +281,11 @@ class VCNN(nn.Module):
                         ]
                     )
 
-                prog.set_postfix(self._get_progress_postfix(
-                    loss=loss_vals.mean(),
-                    accuracy=metric_vals["accuracy"].mean()
-                ))
+                prog.set_postfix(
+                    self._get_progress_postfix(
+                        loss=loss_vals.mean(), accuracy=metric_vals["accuracy"].mean()
+                    )
+                )
 
             # Append average of metric values from all validation steps
             for name, metric in self._metrics.items():
@@ -272,8 +294,10 @@ class VCNN(nn.Module):
             self._loss_metric.append(valid_val=loss_vals.mean())
 
     def _get_progress_postfix(self, loss: torch.Tensor, accuracy: torch.Tensor) -> dict:
-        return {"Loss": "{:.3f}".format(loss.numpy()),
-                "Accuracy": "{:.3f}".format(accuracy.numpy())}
+        return {
+            "Loss": "{:.3f}".format(loss.numpy()),
+            "Accuracy": "{:.3f}".format(accuracy.numpy()),
+        }
 
     def train_epochs(
         self,
@@ -300,18 +324,29 @@ class VCNN(nn.Module):
 
         for i in torch.arange(0, n_epochs):
             self._epoch += 1
-            self._train_epoch(epoch=self._epoch, train_loader=train_loader, show_progress=show_progress)
-            self._valid_epoch(epoch=self._epoch, valid_loader=valid_loader, show_progress=show_progress)
+            self._train_epoch(
+                epoch=self._epoch,
+                train_loader=train_loader,
+                show_progress=show_progress,
+            )
+            self._valid_epoch(
+                epoch=self._epoch,
+                valid_loader=valid_loader,
+                show_progress=show_progress,
+            )
 
             if i % save_interval == 0 and save_path is not None:
                 self.save(path=save_path)
-            
+
             if trial is not None:
-                trial.report(self._metrics[trial_metric].valid_vals[-1].cpu().numpy(), self._epoch)
+                trial.report(
+                    self._metrics[trial_metric].valid_vals[-1].cpu().numpy(),
+                    self._epoch,
+                )
 
             if trial.should_prune:
                 raise optuna.exceptions.TrialPruned()
-    
+
     def save(self, path: str, relative_to_package: bool = False) -> None:
 
         if not self._train_dataset or not self._valid_dataset:
@@ -366,13 +401,14 @@ class VCNN(nn.Module):
         return summary(self, input_dims)
 
     @classmethod
-    def load(cls,
-             path: str,
-             train_dataset: GalaxyDataset | None = None,
-             valid_dataset: GalaxyDataset | None = None,
-             metrics: typing.Dict[str, [Callable, dict]] = DEFAULT_METRICS,
-             relative_to_package: bool = False,
-             ) -> "VCNN":
+    def load(
+        cls,
+        path: str,
+        train_dataset: GalaxyDataset | None = None,
+        valid_dataset: GalaxyDataset | None = None,
+        metrics: typing.Dict[str, [Callable, dict]] = DEFAULT_METRICS,
+        relative_to_package: bool = False,
+    ) -> "VCNN":
 
         if relative_to_package:
             path = str(Path(vacation.__file__).parent.parent / path)
@@ -405,21 +441,24 @@ class VCNN(nn.Module):
         cls._loss_metric.valid_vals = state["loss"][1]
 
         model_state_dict = state["model_state_dict"]
-        model_state_dict = {f"model.{key}": value for key, value in model_state_dict.items()}
+        model_state_dict = {
+            f"model.{key}": value for key, value in model_state_dict.items()
+        }
 
         cls.load_state_dict(model_state_dict)
 
         cls._optimizer.load_state_dict(state["optimizer_state_dict"])
 
         if train_dataset is None and valid_dataset is None:
-            cls.init_data(train_dataset=state["train_dataset"],
-                          valid_dataset=state["valid_dataset"],
-                          train_args=state["train_args"],
-                          valid_args=state["valid_args"])
+            cls.init_data(
+                train_dataset=state["train_dataset"],
+                valid_dataset=state["valid_dataset"],
+                train_args=state["train_args"],
+                valid_args=state["valid_args"],
+            )
         else:
             cls.init_data(train_dataset=train_dataset, valid_dataset=valid_dataset)
 
         cls._epoch = state["epoch"]
-        
-        return cls
 
+        return cls

@@ -3,13 +3,11 @@ import warnings
 from pathlib import Path
 
 import h5py
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-
 from tqdm.auto import tqdm
-
-import matplotlib.pyplot as plt
 
 # Data Caching adapted from own previous project: simtools
 # (https://github.com/tgross03/simtools/blob/main/simtools/data/dataset.py)
@@ -181,7 +179,9 @@ class GalaxyDataset(Dataset):
         self.device: str = device
 
         self._hf: h5py._hl.files.File = h5py.File(self.path, "r")
-        self._labels: torch.Tensor = torch.from_numpy(self._hf["ans"][:]).to(self.device)
+        self._labels: torch.Tensor = torch.from_numpy(self._hf["ans"][:]).to(
+            self.device
+        )
         self._end_idx: int = end_index
         self._index_collection: np.typing.ArrayLike | None = index_collection
 
@@ -194,7 +194,11 @@ class GalaxyDataset(Dataset):
         if self._index_collection is not None:
             return len(self._index_collection)
         else:
-            return self._hf["images"].shape[0] if self._end_idx == -1 else self._end_idx + 1
+            return (
+                self._hf["images"].shape[0]
+                if self._end_idx == -1
+                else self._end_idx + 1
+            )
 
     def __getitem__(self, key: int) -> tuple[torch.Tensor, int]:
 
@@ -229,23 +233,27 @@ class GalaxyDataset(Dataset):
 
     def get_labels(self) -> torch.Tensor:
         if self._index_collection is None:
-            return self._labels[:self._end_idx]
+            return self._labels[: self._end_idx]
         else:
             return self._labels[self._index_collection]
 
     def get_args(self) -> dict:
         return {
-                "cache_loaded": self._cache is not None,
-                "index_collection": self._index_collection,
-                "end_index": self._end_idx,
-                "max_cache_size": self._cache._max_size if self._cache else "3G",
-                "cache_cleaning_policy": self._cache._cleaning_policy if self._cache else "oldest",
-            }
+            "cache_loaded": self._cache is not None,
+            "index_collection": self._index_collection,
+            "end_index": self._end_idx,
+            "max_cache_size": self._cache._max_size if self._cache else "3G",
+            "cache_cleaning_policy": self._cache._cleaning_policy
+            if self._cache
+            else "oldest",
+        }
 
-    def plot_examples(self,
-                      random_state: int | None = None,
-                      save_path: str | None = None,
-                      save_args: dict = {"bbox_inches": "tight"}):
+    def plot_examples(
+        self,
+        random_state: int | None = None,
+        save_path: str | None = None,
+        save_args: dict = {"bbox_inches": "tight"},
+    ):
 
         rng = np.random.default_rng(seed=random_state)
 
@@ -253,7 +261,9 @@ class GalaxyDataset(Dataset):
 
         label_idx = np.zeros(len(CLASS_NAMES), dtype=np.int64)
         for label in labels:
-            label_idx[label] = np.argwhere(self.get_labels().cpu() == label)[0][rng.integers(0, counts[label])]
+            label_idx[label] = np.argwhere(self.get_labels().cpu() == label)[0][
+                rng.integers(0, counts[label])
+            ]
 
         fig, ax = plt.subplots(2, 5, figsize=(10, 5), layout="tight")
         ax = ax.ravel()
@@ -264,26 +274,28 @@ class GalaxyDataset(Dataset):
         if save_path:
             fig.savefig(save_path, **save_args)
 
-    def plot_distribution(self,
-                          plot_args: dict = {
-                            "rwidth": 0.96,
-                            "facecolor": "#e64553",
-                          },
-                          save_path: str | None = None,
-                          save_args: dict = {"bbox_inches": "tight"}):
+    def plot_distribution(
+        self,
+        plot_args: dict = {
+            "rwidth": 0.96,
+            "facecolor": "#e64553",
+        },
+        save_path: str | None = None,
+        save_args: dict = {"bbox_inches": "tight"},
+    ):
 
         fig, ax = plt.subplots(layout="tight")
 
         labels, counts = np.unique(self.get_labels().cpu(), return_counts=True)
-        _, bins, bars = ax.hist(self.get_labels().cpu(),
-                                bins=np.arange(0, 11),
-                                label=f"Total: {len(self)}",
-                                **plot_args
-                                )
+        _, bins, bars = ax.hist(
+            self.get_labels().cpu(),
+            bins=np.arange(0, 11),
+            label=f"Total: {len(self)}",
+            **plot_args,
+        )
         ax.bar_label(bars)
         ax.set_xticks(bins[:-1] + 0.5)
-        ax.set_xticklabels([plt.Text(bins[label] + 0.5, 0, label) 
-                            for label in labels])
+        ax.set_xticklabels([plt.Text(bins[label] + 0.5, 0, label) for label in labels])
         ax.set_xlabel("Classes")
         ax.set_ylabel("Counts")
         ax.set_ylim(0, np.max(counts) * 1.1)

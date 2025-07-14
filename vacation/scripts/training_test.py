@@ -1,7 +1,8 @@
-from vacation.model import VCNN
-from vacation.data import GalaxyDataset
 import numpy as np
 import torch
+
+from vacation.data import GalaxyDataset
+from vacation.model import VCNN
 
 rng = np.random.default_rng(1337)
 
@@ -32,7 +33,7 @@ model = VCNN(
     learning_rate=0.001,
     weight_decay=0.03,
     loss_func=torch.nn.CrossEntropyLoss,
-    device="cuda:1"
+    device="cuda:1",
 )
 model.init_data(train_dataset=train_ds, valid_dataset=valid_ds)
 
