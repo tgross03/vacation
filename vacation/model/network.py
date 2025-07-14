@@ -18,6 +18,7 @@ import vacation
 
 from torchinfo import summary
 
+import optuna
 
 @dataclass
 class Metric:
@@ -124,27 +125,12 @@ class VCNN(nn.Module):
             self._activation_func(),
             nn.MaxPool2d(kernel_size=2, padding=0, stride=2),
             nn.Dropout2d(p=self._dropout_rates[1]),
-            # nn.Conv2d(
-            #     in_channels=self._out_channels[1],
-            #     out_channels=self._out_channels[2],
-            #     kernel_size=3,
-            #     padding=0,
-            #     stride=1,
-            # ),
-            # nn.BatchNorm2d(num_features=self._out_channels[2]),
-            # self._activation_func(),
-            # nn.MaxPool2d(kernel_size=2, padding=0, stride=2),
-            # nn.Dropout2d(p=self._dropout_rates[2]),
             nn.Flatten(),
             nn.LazyLinear(out_features=self._lin_out_features[0]),
             self._activation_func(),
+            nn.Dropout(p=self._dropout_rates[2]),
             nn.Linear(
                 in_features=self._lin_out_features[0],
-                out_features=self._lin_out_features[1],
-            ),
-            self._activation_func(),
-            nn.Linear(
-                in_features=self._lin_out_features[1],
                 out_features=self._num_labels,
             ),
         )
@@ -184,7 +170,11 @@ class VCNN(nn.Module):
         else:
             self._valid_dataset = valid_dataset
 
-    def _train_epoch(self, epoch: int, train_loader: torch.utils.data.DataLoader) -> None:
+    def _train_epoch(self, 
+                     epoch: int, 
+                     train_loader: torch.utils.data.DataLoader,
+                     show_progress: bool = True,
+                    ) -> None:
 
         metric_vals = dict(
             zip(self._metrics.keys(), [torch.Tensor()] * len(self._metrics.keys()))
@@ -193,7 +183,7 @@ class VCNN(nn.Module):
         loss_vals = torch.Tensor()
 
         self.model.train()
-        prog = tqdm(train_loader, desc=f"Training epoch {epoch}", colour="#8caaee")
+        prog = tqdm(train_loader, desc=f"Training epoch {epoch}", colour="#8caaee", disable=not show_progress)
         for X, y in prog:
 
             self._optimizer.zero_grad()
@@ -234,7 +224,7 @@ class VCNN(nn.Module):
         # Append loss value
         self._loss_metric.append(train_val=loss_vals.mean())
 
-    def _valid_epoch(self, epoch: int, valid_loader: torch.utils.data.DataLoader) -> None:
+    def _valid_epoch(self, epoch: int, valid_loader: torch.utils.data.DataLoader, show_progress: bool = True) -> None:
         self.model.eval()
         metric_vals = dict(
             zip(self._metrics.keys(), [torch.Tensor()] * len(self._metrics.keys()))
@@ -243,7 +233,7 @@ class VCNN(nn.Module):
         loss_vals = torch.Tensor()
 
         with torch.no_grad():
-            prog = tqdm(valid_loader, desc=f"Validating epoch {epoch}", colour="#ca9ee6")
+            prog = tqdm(valid_loader, desc=f"Validating epoch {epoch}", colour="#ca9ee6", disable=not show_progress)
             for X, y in prog:
                 y_pred = self.model(X)
 
@@ -288,9 +278,11 @@ class VCNN(nn.Module):
     def train_epochs(
         self,
         n_epochs: int,
-        save_name: str | None = None,
-        checkpoint_path: str | None = None,
-        summarize: bool = True,
+        trial: optuna.trial.Trial | None,
+        trial_metric: str = "accuracy",
+        save_path: str | None = None,
+        save_interval: int = 1,
+        show_progress: bool = True,
     ) -> None:
 
         if not self._train_dataset or not self._valid_dataset:
@@ -306,12 +298,21 @@ class VCNN(nn.Module):
             self._valid_dataset, batch_size=self._valid_batch_size, shuffle=True
         )
 
-        for _ in torch.arange(0, n_epochs):
+        for i in torch.arange(0, n_epochs):
             self._epoch += 1
-            self._train_epoch(epoch=self._epoch, train_loader=train_loader)
-            self._valid_epoch(epoch=self._epoch, valid_loader=valid_loader)
+            self._train_epoch(epoch=self._epoch, train_loader=train_loader, show_progress=show_progress)
+            self._valid_epoch(epoch=self._epoch, valid_loader=valid_loader, show_progress=show_progress)
+
+            if i % save_interval == 0 and save_path is not None:
+                self.save(path=save_path)
+            
+            if trial is not None:
+                trial.report(self._metrics[trial_metric].valid_vals[-1].cpu().numpy(), self._epoch)
+
+            if trial.should_prune:
+                raise optuna.exceptions.TrialPruned()
     
-    def save_state(self, path: str, relative_to_package: bool = False) -> None:
+    def save(self, path: str, relative_to_package: bool = False) -> None:
 
         if not self._train_dataset or not self._valid_dataset:
             raise AttributeError(
@@ -334,17 +335,18 @@ class VCNN(nn.Module):
             "out_channels": self._out_channels,
             "dropout_rates": self._dropout_rates,
             "lin_out_features": self._lin_out_features,
-            "optimizer": str(self._optimizer.__class__),
-            "activation_func": str(self._activation_func),
+            "optimizer": str(self._optimizer.__class__.__name__),
+            "activation_func": str(self._activation_func.__name__),
             "lr": self._lr,
             "weight_decay": self._weight_decay,
-            "loss_func": str(self._loss_func.__class__),
+            "loss_func": str(self._loss_func.__class__.__name__),
             # Model & Optimizer
             "model_state_dict": self.model.state_dict(),
             "optimizer_state_dict": self._optimizer.state_dict(),
             # Loss values
             "loss": self._loss_metric.as_exportable(),
             # Utils
+            "model_structure": str(self.model),
             "seed": self._seed,
             "device": self._device,
         }
@@ -366,9 +368,8 @@ class VCNN(nn.Module):
     @classmethod
     def load(cls,
              path: str,
-             optimizer: optim.Optimizer,
-             activation_func: Callable,
-             loss_func: Callable = torch.nn.CrossEntropyLoss,
+             train_dataset: GalaxyDataset | None = None,
+             valid_dataset: GalaxyDataset | None = None,
              metrics: typing.Dict[str, [Callable, dict]] = DEFAULT_METRICS,
              relative_to_package: bool = False,
              ) -> "VCNN":
@@ -378,31 +379,19 @@ class VCNN(nn.Module):
 
         state = torch.load(path, weights_only=False)
 
-        if str(optimizer) != state["optimizer"]:
-            warnings.warn("The optimizer class does not match the saved class! "
-                "This can lead to unintended behaviour!")
-
-        if str(activation_func) != state["activation_func"]:
-            warnings.warn("The activation function class does not match the saved class! "
-                "This can lead to unintended behaviour!")
-
-        if str(loss_func) != state["loss_func"]:
-            warnings.warn("The loss function class does not match the saved class! "
-                "This can lead to unintended behaviour!")
-
         cls = cls(
             train_batch_size=state["train_batch_size"],
             valid_batch_size=state["valid_batch_size"],
             out_channels=state["out_channels"],
             dropout_rates=state["dropout_rates"],
             lin_out_features=state["lin_out_features"],
-            optimizer=optimizer,
-            activation_func=activation_func,
+            optimizer=getattr(optim, state["optimizer"]),
+            activation_func=getattr(torch.nn, state["activation_func"]),
             learning_rate=state["lr"],
             weight_decay=state["weight_decay"],
             img_size=state["img_size"],
             num_labels=state["num_labels"],
-            loss_func=loss_func,
+            loss_func=getattr(torch.nn, state["loss_func"]),
             metrics=metrics,
             seed=state["seed"],
             device=state["device"],
@@ -422,12 +411,15 @@ class VCNN(nn.Module):
 
         cls._optimizer.load_state_dict(state["optimizer_state_dict"])
 
-        cls.init_data(train_dataset=state["train_dataset"],
-                      valid_dataset=state["valid_dataset"],
-                      train_args=state["train_args"],
-                      valid_args=state["valid_args"])
+        if train_dataset is None and valid_dataset is None:
+            cls.init_data(train_dataset=state["train_dataset"],
+                          valid_dataset=state["valid_dataset"],
+                          train_args=state["train_args"],
+                          valid_args=state["valid_args"])
+        else:
+            cls.init_data(train_dataset=train_dataset, valid_dataset=valid_dataset)
 
         cls._epoch = state["epoch"]
-
+        
         return cls
 

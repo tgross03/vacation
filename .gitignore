@@ -156,3 +156,5 @@ cython_debug/
 .models
 *.pt
 *.pth
+*.sqlite3
+*.db

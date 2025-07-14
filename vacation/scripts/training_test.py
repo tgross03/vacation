@@ -25,17 +25,17 @@ model = VCNN(
     train_batch_size=128,
     valid_batch_size=128,
     out_channels=[4, 6, 8],
-    dropout_rates=[0.25, 0.20, 0.15],
-    lin_out_features=[300, 100],
+    dropout_rates=[0.4, 0.4, 0.4],
+    lin_out_features=[300],
     optimizer=torch.optim.AdamW,
     activation_func=torch.nn.PReLU,
     learning_rate=0.001,
-    weight_decay=0.01,
+    weight_decay=0.03,
     loss_func=torch.nn.CrossEntropyLoss,
     device="cuda:1"
 )
 model.init_data(train_dataset=train_ds, valid_dataset=valid_ds)
 
-model.train_epochs(n_epochs=50)
+model.train_epochs(n_epochs=60)
 
-model.save_state(".models/model_full_v1.pt", relative_to_package=True)
+model.save(".models/model_full_v2_2.pt", relative_to_package=True)
