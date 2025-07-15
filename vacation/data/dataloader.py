@@ -105,7 +105,7 @@ class DataCache:
         MAX_ITER = 10
         while (
             self._memsize + record["size"] > self._max_size
-            or free_memory < record["size"] * 1.5
+            or free_memory * 0.9 < record["size"]
         ):
             if MAX_ITER <= 0:
                 warnings.warn(

@@ -344,7 +344,7 @@ class VCNN(nn.Module):
                     self._epoch,
                 )
 
-            if trial.should_prune:
+            if trial.should_prune():
                 raise optuna.exceptions.TrialPruned()
 
     def save(self, path: str, relative_to_package: bool = False) -> None:

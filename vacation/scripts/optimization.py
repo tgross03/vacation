@@ -31,14 +31,14 @@ artifact_store = FileSystemArtifactStore(base_path=CHECKPOINT_DIR)
 train_ds = GalaxyDataset(
     path="/scratch/tgross/vacation_data/Galaxy10_DECals_train.h5",
     device="cuda:1",
-    max_cache_size="15G",
+    max_cache_size="10G",
     cache_loaded=True,
 )
 
 valid_ds = GalaxyDataset(
     path="/scratch/tgross/vacation_data/Galaxy10_DECals_valid.h5",
     device="cuda:1",
-    max_cache_size="4G",
+    max_cache_size="3G",
     cache_loaded=True,
 )
 
