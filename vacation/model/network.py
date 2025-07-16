@@ -198,7 +198,7 @@ class VCNN(nn.Module):
 
             self._optimizer.zero_grad()
 
-            y_pred = self.model(X)
+            y_pred = self.model(X) # 10x1 containing probabilities
             loss = self._loss_func(y_pred, y)
             loss.backward()
 
@@ -396,7 +396,7 @@ class VCNN(nn.Module):
 
         torch.save(state, path)
 
-    def summarize(self, input_dims: tuple[int] = (3, 256, 256)):
+    def summarize(self, input_dims: tuple[int] = (1, 3, 256, 256)):
         self.model.eval()
         return summary(self, input_dims)
 
@@ -421,13 +421,16 @@ class VCNN(nn.Module):
             out_channels=state["out_channels"],
             dropout_rates=state["dropout_rates"],
             lin_out_features=state["lin_out_features"],
-            optimizer=getattr(optim, state["optimizer"]),
-            activation_func=getattr(torch.nn, state["activation_func"]),
+            # optimizer=getattr(optim, state["optimizer"]),
+            optimizer=getattr(optim, "AdamW"),
+            # activation_func=getattr(torch.nn, state["activation_func"]),
+            activation_func=getattr(torch.nn, "PReLU"),
             learning_rate=state["lr"],
             weight_decay=state["weight_decay"],
             img_size=state["img_size"],
             num_labels=state["num_labels"],
-            loss_func=getattr(torch.nn, state["loss_func"]),
+            # loss_func=getattr(torch.nn, state["loss_func"]),
+            loss_func=getattr(torch.nn, "CrossEntropyLoss"),
             metrics=metrics,
             seed=state["seed"],
             device=state["device"],
@@ -444,8 +447,6 @@ class VCNN(nn.Module):
         model_state_dict = {
             f"model.{key}": value for key, value in model_state_dict.items()
         }
-
-        cls.load_state_dict(model_state_dict)
 
         cls._optimizer.load_state_dict(state["optimizer_state_dict"])
 
