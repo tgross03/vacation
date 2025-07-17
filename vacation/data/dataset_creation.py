@@ -11,7 +11,12 @@ from sklearn.model_selection import train_test_split as split
 from tqdm.auto import tqdm
 
 
-def generate_dataset(location: Path, redownload: bool = False, overwrite: bool = True):
+def generate_dataset(
+    location: Path,
+    redownload: bool = False,
+    overwrite: bool = True,
+    img_size: int | None = 128,
+):
     url = "https://zenodo.org/records/10845026/files/Galaxy10_DECals.h5"
 
     if not isinstance(location, Path):
@@ -60,8 +65,21 @@ def generate_dataset(location: Path, redownload: bool = False, overwrite: bool =
     gc.collect()
 
     with h5py.File(target, "r") as hf:
+
+        original_size = hf["images"][0].shape[0]
+
+        if img_size is None:
+            img_size = original_size
+
+        crop = (original_size // 2 - img_size // 2, original_size // 2 + img_size // 2)
+
+        print(crop)
+
         print("Reading image data ...")
-        images = np.asarray(hf["images"], dtype=np.float32)
+        images = np.asarray(hf["images"], dtype=np.float32)[
+            :, crop[0] : crop[1], crop[0] : crop[1], :
+        ]
+
         print(
             f"Completed reading image data (Memory size {images.nbytes * 1e-6} MB) ..."
         )
@@ -74,6 +92,7 @@ def generate_dataset(location: Path, redownload: bool = False, overwrite: bool =
             f"Completed reading label data (Memory size {labels.nbytes * 1e-6} MB) ..."
         )
 
+    print(images.shape)
     with h5py.File(target_proc, "w") as hf:
         print("Writing image data ...")
         hf.create_dataset(

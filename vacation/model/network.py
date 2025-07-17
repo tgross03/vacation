@@ -62,7 +62,7 @@ class VCNN(nn.Module):
         activation_func: Callable,
         learning_rate: float,
         weight_decay: float,
-        img_size: int = 256,
+        img_size: int = 128,
         num_labels: int = 10,
         loss_func: Callable = torch.nn.CrossEntropyLoss,
         metrics: typing.Dict[str, [Callable, dict]] = DEFAULT_METRICS,
