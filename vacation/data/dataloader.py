@@ -26,12 +26,18 @@ def format_bytes(byte: int) -> str:
 
 
 class DataCache:
-    def __init__(self, max_size, cleaning_policy):
+    def __init__(
+        self,
+        max_size: str | int,
+        device: str,
+        cleaning_policy: str,
+        use_cpu_memory: bool,
+    ):
         """
         Creates a new data cache for files in the dataset.
 
         The cache records are structured as follows:
-        records = { UNIQUE_ID: { data: DATA, size: MEMORY_SIZE }, ... }
+        records = { UNIQUE_ID: { data: DATA, size: MEMORY_SIZE, device: 'cuda' | 'cpu' }, ... }
 
         The data has to have the following form:
         DATA = (torch.Tensor)
@@ -43,6 +49,9 @@ class DataCache:
             The maximum memory size of the file cache. Can be given as bytes (int)
             or a string (e.g. `"10G"` or `"1M"`).
 
+        device: str
+            The primary device to send data to.
+
         cleaning_policy: str
             The way the program will remove files from the cache if it has reached its
             memory limit.
@@ -50,10 +59,16 @@ class DataCache:
                 1. `oldest` -> the oldest file in the cache will be removed
                 2. `youngest` -> the youngest file in the cache will be removed
                 3. `largest` -> the largest file in the cache will be removed
+
+        use_cpu_memory: bool
+            Whether to move cleaned items to the normal memory (RAM) if the vRAM is
+            full instead of removing the object from the memory.
         """
         self._records = dict()
         self._memsize = 0
         self._timeline = np.array([], dtype=int)
+        self._use_cpu_memory = use_cpu_memory
+        self._device = device
 
         match max_size:
             case str():
@@ -86,39 +101,71 @@ class DataCache:
         if record is None:
             return None
 
+        if record["device"] != self._device:
+            if self._cleaning_loop(uid=i, record=record):
+                record["data"].to(self._device)
+                record["device"] = self._device
+                self._add(uid=i, record=record, metadata_only=True)
+            else:
+                return None
+
         return record["data"]
 
     def __len__(self):
         return len(self._records)
 
-    def add(self, uid, data):
-        record = dict(
-            data=data,
-            size=int(sys.getsizeof(data.untyped_storage())),
+    def _is_memory_available(
+        self,
+        record: dict,
+        memory_multiplier: float = 0.9,
+        record_multiplier: float = 1.5,
+    ):
+        try:
+            free_memory = torch.cuda.mem_get_info(device=self._device)[0]
+        except Exception:
+            free_memory = np.inf
+
+        return (
+            self._memsize + record["size"] < self._max_size
+            and free_memory * memory_multiplier > record["size"] * record_multiplier
         )
 
-        try:
-            free_memory = torch.cuda.mem_get_info(device=data.device)[0]
-        except ValueError:
-            free_memory = np.infty
-
-        MAX_ITER = 10
-        while (
-            self._memsize + record["size"] > self._max_size
-            or free_memory * 0.9 < record["size"] * 1.5
-        ):
-            if MAX_ITER <= 0:
+    def _cleaning_loop(self, uid: int, record: dict, max_iter: int = 10, **check_args):
+        while not self._is_memory_available(record=record, **check_args):
+            if max_iter <= 0:
                 warnings.warn(
                     f"The record with the uid {uid} could not be cached because it is too large! "
                     f"Current cache size: {self._memsize}"
                 )
+                break
 
             self.clean()
-            MAX_ITER -= 1
+            max_iter -= 1
 
+        return max_iter > 0
+
+    def _add(self, uid: int, record: dict, metadata_only: bool = False):
         self._timeline = np.append(self._timeline, uid)
-        self._records[str(uid)] = record
         self._memsize += record["size"]
+        if not metadata_only:
+            self._records[str(uid)] = record
+
+    def add(self, uid: int, data: torch.Tensor):
+
+        record = dict(
+            data=data,
+            size=int(sys.getsizeof(data.untyped_storage())),
+            device=str(data.device),
+        )
+
+        if self._cleaning_loop(uid=uid, record=record):
+            if str(record["data"].device) != self._device:
+                data.to(self._device)
+                record["device"] = self._device
+            self._add(uid=uid, record=record)
+        else:
+            record["data"].to("cpu")
+            record["device"] = "cpu"
 
     def clean(self):
         uid = 0
@@ -139,7 +186,13 @@ class DataCache:
 
         self._timeline = np.delete(self._timeline, np.where(self._timeline == uid))
         self._memsize -= record["size"]
-        self._records.pop(str(uid), None)
+
+        if self._use_cpu_memory:
+            record["data"].to("cpu")
+            record["device"] = "cpu"
+        else:
+            self._records.pop(str(uid), None)
+            del record
 
     def clear(self):
         del self._records
@@ -173,6 +226,7 @@ class GalaxyDataset(Dataset):
         end_index: int = -1,
         max_cache_size: str = "3G",
         cache_cleaning_policy: str = "oldest",
+        use_cpu_memory: str = True,
     ):
         super(GalaxyDataset, self).__init__()
         self.path: Path = path if isinstance(path, Path) else Path(path)
@@ -186,7 +240,12 @@ class GalaxyDataset(Dataset):
         self._index_collection: np.typing.ArrayLike | None = index_collection
 
         if cache_loaded:
-            self._cache = DataCache(max_cache_size, cache_cleaning_policy)
+            self._cache = DataCache(
+                max_size=max_cache_size,
+                device=device,
+                cleaning_policy=cache_cleaning_policy,
+                use_cpu_memory=use_cpu_memory,
+            )
         else:
             self._cache = None
 

@@ -31,7 +31,7 @@ artifact_store = FileSystemArtifactStore(base_path=CHECKPOINT_DIR)
 train_ds = GalaxyDataset(
     path="/scratch/tgross/vacation_data/Galaxy10_DECals_train.h5",
     device="cuda:1",
-    max_cache_size="14G",
+    max_cache_size="10G",
     cache_loaded=True,
 )
 
@@ -53,10 +53,7 @@ def objective(trial: optuna.trial.Trial):
         "valid_batch_size": int(
             2 ** (trial.suggest_int(name="valid_batch_size", low=0, high=9))
         ),
-        "out_channels": [
-            int(trial.suggest_int(name="out_channels_0", low=1, high=12)),
-            None,
-        ],
+        "out_channels": [None, None],
         "dropout_rates": [
             trial.suggest_float(name="dropout_rates_0", low=0.0, high=0.75),
             trial.suggest_float(name="dropout_rates_1", low=0.0, high=0.75),
@@ -79,7 +76,14 @@ def objective(trial: optuna.trial.Trial):
         "weight_decay": trial.suggest_float(name="weight_decay", low=1e-3, high=1e-1),
     }
 
-    hyper_params["out_channels"][1] = int(trial.suggest_int(name="out_channels_1", low=hyper_params["out_channels"][0], high=12))
+    hyper_params["out_channels"][0] = int(
+        trial.suggest_int(name="out_channels_0", low=3, high=12)
+    )
+    hyper_params["out_channels"][1] = int(
+        trial.suggest_int(
+            name="out_channels_1", low=hyper_params["out_channels"][0], high=12
+        )
+    )
 
     # Check if trial failed and has an artifact to jump back to
     artifact_id = None

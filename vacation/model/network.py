@@ -198,7 +198,7 @@ class VCNN(nn.Module):
 
             self._optimizer.zero_grad()
 
-            y_pred = self.model(X) # 10x1 containing probabilities
+            y_pred = self.model(X)  # 10x1 containing probabilities
             loss = self._loss_func(y_pred, y)
             loss.backward()
 
@@ -408,6 +408,7 @@ class VCNN(nn.Module):
         valid_dataset: GalaxyDataset | None = None,
         metrics: typing.Dict[str, [Callable, dict]] = DEFAULT_METRICS,
         relative_to_package: bool = False,
+        device: str | None = None,
     ) -> "VCNN":
 
         if relative_to_package:
@@ -433,7 +434,7 @@ class VCNN(nn.Module):
             loss_func=getattr(torch.nn, "CrossEntropyLoss"),
             metrics=metrics,
             seed=state["seed"],
-            device=state["device"],
+            device=state["device"] if device is None else device,
         )
 
         for key, metric in cls._metrics.items():
