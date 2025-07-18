@@ -1,8 +1,10 @@
 import typing
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import optuna
 import torch
@@ -187,7 +189,7 @@ class VCNN(nn.Module):
 
         loss_vals = torch.Tensor()
 
-        self.model.train()
+        self.train()
         prog = tqdm(
             train_loader,
             desc=f"Training epoch {epoch}",
@@ -198,7 +200,7 @@ class VCNN(nn.Module):
 
             self._optimizer.zero_grad()
 
-            y_pred = self.model(X)  # 10x1 containing probabilities
+            y_pred = self(X)
             loss = self._loss_func(y_pred, y)
             loss.backward()
 
@@ -241,7 +243,7 @@ class VCNN(nn.Module):
         valid_loader: torch.utils.data.DataLoader,
         show_progress: bool = True,
     ) -> None:
-        self.model.eval()
+        self.eval()
         metric_vals = dict(
             zip(self._metrics.keys(), [torch.Tensor()] * len(self._metrics.keys()))
         )
@@ -256,7 +258,7 @@ class VCNN(nn.Module):
                 disable=not show_progress,
             )
             for X, y in prog:
-                y_pred = self.model(X)
+                y_pred = self(X)
 
                 loss_vals = torch.cat(
                     [
@@ -397,8 +399,37 @@ class VCNN(nn.Module):
         torch.save(state, path)
 
     def summarize(self, input_dims: tuple[int] = (1, 3, 256, 256)):
-        self.model.eval()
+        self.eval()
         return summary(self, input_dims)
+
+    def plot_metric(
+        self,
+        key: str,
+        components: list[str] = ["train", "valid"],
+        colors: list[str] = ["#1e66f5", "#e64553"],
+        name: str | None = None,
+        plot_args: dict = {},
+        save_args: dict = {"bbox_inches": "tight"},
+    ):
+
+        fig, ax = plt.subplots(1, 1, layout="constrained")
+
+        metric = self._loss_metric if key == "loss" else self._metrics[key]
+
+        if "train" in components:
+            ax.plot(metric.train_vals, label="Train", color=colors[0])
+        if "valid" in components:
+            ax.plot(metric.valid_vals, label="Valid", color=colors[1])
+
+        if name is None:
+            name = key.title()
+
+        ax.set_xlabel("Epoch")
+        ax.set_ylabel(name)
+
+        ax.legend()
+
+        return fig, ax
 
     @classmethod
     def load(
@@ -422,16 +453,13 @@ class VCNN(nn.Module):
             out_channels=state["out_channels"],
             dropout_rates=state["dropout_rates"],
             lin_out_features=state["lin_out_features"],
-            # optimizer=getattr(optim, state["optimizer"]),
-            optimizer=getattr(optim, "AdamW"),
-            # activation_func=getattr(torch.nn, state["activation_func"]),
-            activation_func=getattr(torch.nn, "PReLU"),
+            optimizer=getattr(optim, state["optimizer"]),
+            activation_func=getattr(torch.nn, state["activation_func"]),
             learning_rate=state["lr"],
             weight_decay=state["weight_decay"],
             img_size=state["img_size"],
             num_labels=state["num_labels"],
-            # loss_func=getattr(torch.nn, state["loss_func"]),
-            loss_func=getattr(torch.nn, "CrossEntropyLoss"),
+            loss_func=getattr(torch.nn, state["loss_func"]),
             metrics=metrics,
             seed=state["seed"],
             device=state["device"] if device is None else device,
@@ -449,7 +477,13 @@ class VCNN(nn.Module):
             f"model.{key}": value for key, value in model_state_dict.items()
         }
 
-        cls._optimizer.load_state_dict(state["optimizer_state_dict"])
+        try:
+            cls._optimizer.load_state_dict(state["optimizer_state_dict"])
+        except ValueError as e:
+            warnings.warn(
+                "Could not load optimizer state dict. Training is probably not continuable!\n"
+                f"Error: {e}"
+            )
 
         if train_dataset is None and valid_dataset is None:
             cls.init_data(
