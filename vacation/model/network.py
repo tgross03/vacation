@@ -52,14 +52,50 @@ DEFAULT_METRICS = {
 }
 
 
+@dataclass
+class ConvBlock:
+    in_channels: int
+    out_channels: int
+    conv_kernel_size: int
+    conv_padding: int
+    conv_stride: int
+    activation_func: callable
+    pool_kernel_size: int
+    pool_padding: int
+    pool_stride: int
+    dropout_rate: float
+
+    def get_layers(self):
+        return [
+            nn.Conv2d(
+                in_channels=self.in_channels,
+                out_channels=self.out_channels,
+                kernel_size=self.conv_kernel_size,
+                padding=self.conv_padding,
+                stride=self.conv_stride,
+            ),
+            nn.BatchNorm2d(num_features=self.out_channels),
+            self.activation_func(),
+            nn.MaxPool2d(
+                kernel_size=self.pool_kernel_size,
+                padding=self.pool_padding,
+                stride=self.pool_stride,
+            ),
+            nn.Dropout2d(p=self.dropout_rate),
+        ]
+
+
 class VCNN(nn.Module):
     def __init__(
         self,
         train_batch_size: int,
         valid_batch_size: int,
+        num_conv_blocks: int,
         out_channels: list[int],
-        dropout_rates: list[float],
+        conv_dropout_rates: list[float],
+        num_dense_layers: int,
         lin_out_features: list[int],
+        lin_dropout_rates: list[float],
         optimizer: optim.Optimizer,
         activation_func: Callable,
         learning_rate: float,
@@ -67,6 +103,8 @@ class VCNN(nn.Module):
         img_size: int = 128,
         num_labels: int = 10,
         loss_func: Callable = torch.nn.CrossEntropyLoss,
+        conv_kernel_args={"kernel_size": 3, "padding": 0, "stride": 1},
+        pool_kernel_args={"kernel_size": 2, "padding": 0, "stride": 2},
         metrics: typing.Dict[str, [Callable, dict]] = DEFAULT_METRICS,
         seed: int | None = None,
         device: str = "cuda",
@@ -81,12 +119,20 @@ class VCNN(nn.Module):
         self._train_batch_size: int = train_batch_size
         self._valid_batch_size: int = valid_batch_size
 
-        self._out_channels: list[int] = out_channels
-        self._dropout_rates: list[float] = dropout_rates
-        self._lin_out_features: list[int] = lin_out_features
+        self._num_conv_blocks: int = num_conv_blocks
+        self._out_channels: list[int] = out_channels.copy()
+        self._conv_dropout_rates: list[float] = conv_dropout_rates.copy()
+
+        self._num_dense_layers: int = num_dense_layers
+        self._lin_out_features: list[int] = lin_out_features.copy()
+        self._lin_dropout_rates: list[float] = lin_dropout_rates.copy()
+
         self._activation_func: Callable = activation_func
         self._lr: float = learning_rate
         self._weight_decay: float = weight_decay
+
+        self._conv_kernel_args: dict = conv_kernel_args
+        self._pool_kernel_args: dict = pool_kernel_args
 
         # Training parameters
         self._loss_func: Callable = loss_func()
@@ -105,39 +151,68 @@ class VCNN(nn.Module):
 
         self._loss_metric: Metric = Metric(_func=None)
 
-        # Model definition
-        self.model = nn.Sequential(
-            nn.Conv2d(
-                in_channels=3,
-                out_channels=self._out_channels[0],
-                kernel_size=3,
-                padding=0,
-                stride=1,
-            ),
-            nn.BatchNorm2d(num_features=self._out_channels[0]),
-            self._activation_func(),
-            nn.MaxPool2d(kernel_size=2, padding=0, stride=2),
-            nn.Dropout2d(p=self._dropout_rates[0]),
-            nn.Conv2d(
-                in_channels=self._out_channels[0],
-                out_channels=self._out_channels[1],
-                kernel_size=3,
-                padding=0,
-                stride=1,
-            ),
-            nn.BatchNorm2d(num_features=self._out_channels[1]),
-            self._activation_func(),
-            nn.MaxPool2d(kernel_size=2, padding=0, stride=2),
-            nn.Dropout2d(p=self._dropout_rates[1]),
-            nn.Flatten(),
-            nn.LazyLinear(out_features=self._lin_out_features[0]),
-            self._activation_func(),
-            nn.Dropout(p=self._dropout_rates[2]),
-            nn.Linear(
-                in_features=self._lin_out_features[0],
-                out_features=self._num_labels,
-            ),
+        layers = []
+        out_channels.insert(0, 3)
+
+        # Add convolution blocks
+        for i in range(0, self._num_conv_blocks):
+            layers.extend(
+                ConvBlock(
+                    in_channels=out_channels[i],
+                    out_channels=out_channels[i + 1],
+                    conv_kernel_size=conv_kernel_args["kernel_size"],
+                    conv_padding=conv_kernel_args["padding"],
+                    conv_stride=conv_kernel_args["stride"],
+                    activation_func=self._activation_func,
+                    pool_kernel_size=pool_kernel_args["kernel_size"],
+                    pool_padding=pool_kernel_args["padding"],
+                    pool_stride=pool_kernel_args["stride"],
+                    dropout_rate=self._conv_dropout_rates[i],
+                ).get_layers()
+            )
+
+        # Add fully connected layers
+        dense_layers = []
+
+        if self._num_dense_layers == 0:
+            raise ValueError("The minimum number of dense layers is 1!")
+
+        for i in range(0, self._num_dense_layers):
+            # Use LazyLinear if first layer
+            if i == 0:
+                dense_layers.extend(
+                    [
+                        nn.LazyLinear(out_features=self._lin_out_features[0]),
+                        self._activation_func(),
+                        nn.Dropout(p=self._lin_dropout_rates[0]),
+                    ]
+                )
+            # Use normal Linear layer otherwise
+            else:
+                dense_layers.extend(
+                    [
+                        nn.Linear(
+                            in_features=self._lin_out_features[i - 1],
+                            out_features=self._lin_out_features[i],
+                        ),
+                        self._activation_func(),
+                        nn.Dropout(p=self._lin_dropout_rates[i]),
+                    ]
+                )
+
+        layers.extend(
+            [
+                nn.Flatten(),
+                *dense_layers,
+                nn.Linear(
+                    in_features=self._lin_out_features[-1],
+                    out_features=self._num_labels,
+                ),
+            ]
         )
+
+        # Model definition
+        self.model = nn.Sequential(*layers)
 
         # Init parameters and set model device
         torch.manual_seed(self._seed)
@@ -304,7 +379,11 @@ class VCNN(nn.Module):
     def train_epochs(
         self,
         n_epochs: int,
-        trial: optuna.trial.Trial | None,
+        stop_early: bool = True,
+        patience: int = 5,
+        min_delta: float = 0.0,
+        cumultative_delta: bool = False,
+        trial: optuna.trial.Trial | None = None,
         trial_metric: str = "accuracy",
         save_path: str | None = None,
         save_interval: int = 1,
@@ -323,6 +402,8 @@ class VCNN(nn.Module):
         valid_loader = DataLoader(
             self._valid_dataset, batch_size=self._valid_batch_size, shuffle=True
         )
+
+        epochs_no_increase = 0
 
         for i in torch.arange(0, n_epochs):
             self._epoch += 1
@@ -346,8 +427,21 @@ class VCNN(nn.Module):
                     self._epoch,
                 )
 
-            if trial.should_prune():
-                raise optuna.exceptions.TrialPruned()
+                if trial.should_prune():
+                    raise optuna.exceptions.TrialPruned()
+
+            if stop_early:
+                comp_idx = -(epochs_no_increase + 2) if cumultative_delta else -2
+                if (
+                    self._loss_metric.valid_vals[-1]
+                    <= self._loss_metric.valid_vals[comp_idx] - min_delta
+                ):
+                    epochs_no_increase = 0
+                else:
+                    epochs_no_increase += 1
+
+                if epochs_no_increase > patience:
+                    break
 
     def save(self, path: str, relative_to_package: bool = False) -> None:
 
@@ -369,14 +463,19 @@ class VCNN(nn.Module):
             # Optimizable Hyperparameters
             "train_batch_size": self._train_batch_size,
             "valid_batch_size": self._valid_batch_size,
+            "num_conv_blocks": self._num_conv_blocks,
             "out_channels": self._out_channels,
-            "dropout_rates": self._dropout_rates,
+            "conv_dropout_rates": self._conv_dropout_rates,
+            "num_dense_layers": self._num_dense_layers,
             "lin_out_features": self._lin_out_features,
+            "lin_dropout_rates": self._lin_dropout_rates,
             "optimizer": str(self._optimizer.__class__.__name__),
             "activation_func": str(self._activation_func.__name__),
             "lr": self._lr,
             "weight_decay": self._weight_decay,
             "loss_func": str(self._loss_func.__class__.__name__),
+            "conv_kernel_args": self._conv_kernel_args,
+            "pool_kernel_args": self._pool_kernel_args,
             # Model & Optimizer
             "model_state_dict": self.model.state_dict(),
             "optimizer_state_dict": self._optimizer.state_dict(),
@@ -450,9 +549,12 @@ class VCNN(nn.Module):
         cls = cls(
             train_batch_size=state["train_batch_size"],
             valid_batch_size=state["valid_batch_size"],
+            num_conv_blocks=state["num_conv_blocks"],
             out_channels=state["out_channels"],
-            dropout_rates=state["dropout_rates"],
+            conv_dropout_rates=state["conv_dropout_rates"],
+            num_dense_layers=state["num_dense_layers"],
             lin_out_features=state["lin_out_features"],
+            lin_dropout_rates=state["lin_dropout_rates"],
             optimizer=getattr(optim, state["optimizer"]),
             activation_func=getattr(torch.nn, state["activation_func"]),
             learning_rate=state["lr"],
@@ -460,6 +562,8 @@ class VCNN(nn.Module):
             img_size=state["img_size"],
             num_labels=state["num_labels"],
             loss_func=getattr(torch.nn, state["loss_func"]),
+            conv_kernel_args=state["conv_kernel_args"],
+            pool_kernel_args=state["pool_kernel_args"],
             metrics=metrics,
             seed=state["seed"],
             device=state["device"] if device is None else device,

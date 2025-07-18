@@ -15,13 +15,13 @@ rng = np.random.default_rng(seed=1337)
 
 """
 This script can be used to start a hyperparameter optimization using optuna.
-It is based on the pytorch example script provided by optuna:
+It is partially based on the pytorch example script provided by optuna:
 
 https://github.com/optuna/optuna-examples/blob/main/pytorch/pytorch_checkpoint.py
 
 """
 
-N_EPOCHS = 100
+N_EPOCHS = 150
 CHECKPOINT_DIR = Path("/scratch/tgross/vacation_models/artifacts")
 CHECKPOINT_DIR.mkdir(exist_ok=True, parents=True)
 
@@ -53,15 +53,16 @@ def objective(trial: optuna.trial.Trial):
         "valid_batch_size": int(
             2 ** (trial.suggest_int(name="valid_batch_size", low=0, high=9))
         ),
-        "out_channels": [None, None],
-        "dropout_rates": [
-            trial.suggest_float(name="dropout_rates_0", low=0.0, high=0.75),
-            trial.suggest_float(name="dropout_rates_1", low=0.0, high=0.75),
-            trial.suggest_float(name="dropout_rates_2", low=0.0, high=0.75),
-        ],
-        "lin_out_features": [
-            int(trial.suggest_int(name="lin_out_features_0", low=50, high=500))
-        ],
+        "num_conv_blocks": int(
+            trial.suggest_int(name="num_conv_blocks", low=2, high=6)
+        ),
+        "out_channels": [],
+        "conv_dropout_rates": [],
+        "num_dense_layers": int(
+            trial.suggest_int(name="num_dense_layers", low=1, high=3)
+        ),
+        "lin_out_features": [],
+        "lin_dropout_rates": [],
         "optimizer": getattr(
             torch.optim,
             trial.suggest_categorical("optimizer", ["Adam", "AdamW", "NAdam", "SGD"]),
@@ -76,14 +77,24 @@ def objective(trial: optuna.trial.Trial):
         "weight_decay": trial.suggest_float(name="weight_decay", low=1e-3, high=1e-1),
     }
 
-    hyper_params["out_channels"][0] = int(
-        trial.suggest_int(name="out_channels_0", low=3, high=12)
-    )
-    hyper_params["out_channels"][1] = int(
-        trial.suggest_int(
-            name="out_channels_1", low=hyper_params["out_channels"][0], high=12
+    # Suggest values for out_channels and dropout_rates for Conv Blocks
+    for i in range(0, hyper_params["num_conv_blocks"]):
+        low = 1 if i == 0 else hyper_params["out_channels"][i - 1]
+        hyper_params["out_channels"].append(
+            int(trial.suggest_int(name=f"out_channels_{i}", low=low, high=12))
         )
-    )
+        hyper_params["conv_dropout_rates"].append(
+            trial.suggest_float(name=f"conv_dropout_rate_{i}", low=0.0, high=1.0)
+        )
+
+    # Suggest values for lin_out_features and dropout_rates for dense layers
+    for i in range(0, hyper_params["num_dense_layers"]):
+        hyper_params["lin_out_features"].append(
+            int(trial.suggest_int(name=f"lin_out_features_{i}", low=50, high=1000))
+        )
+        hyper_params["lin_dropout_rates"].append(
+            trial.suggest_float(name=f"lin_dropout_rate_{i}", low=0.0, high=1.0)
+        )
 
     # Check if trial failed and has an artifact to jump back to
     artifact_id = None
@@ -154,7 +165,7 @@ if __name__ == "__main__":
     )
 
     study = optuna.create_study(
-        study_name="vacation",
+        study_name="vacation_v2",
         direction="maximize",
         storage=storage,
         load_if_exists=True,
