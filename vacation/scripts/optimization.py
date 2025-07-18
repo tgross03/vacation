@@ -89,8 +89,9 @@ def objective(trial: optuna.trial.Trial):
 
     # Suggest values for lin_out_features and dropout_rates for dense layers
     for i in range(0, hyper_params["num_dense_layers"]):
+        high = 1000 if i == 0 else hyper_params["lin_out_features"][i - 1]
         hyper_params["lin_out_features"].append(
-            int(trial.suggest_int(name=f"lin_out_features_{i}", low=50, high=1000))
+            int(trial.suggest_int(name=f"lin_out_features_{i}", low=50, high=high))
         )
         hyper_params["lin_dropout_rates"].append(
             trial.suggest_float(name=f"lin_dropout_rate_{i}", low=0.0, high=1.0)
