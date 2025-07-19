@@ -430,7 +430,7 @@ class VCNN(nn.Module):
                 if trial.should_prune():
                     raise optuna.exceptions.TrialPruned()
 
-            if stop_early:
+            if stop_early and self._epoch >= 2:
                 comp_idx = -(epochs_no_increase + 2) if cumultative_delta else -2
                 if (
                     self._loss_metric.valid_vals[-1]
