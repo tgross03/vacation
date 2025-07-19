@@ -21,7 +21,8 @@ https://github.com/optuna/optuna-examples/blob/main/pytorch/pytorch_checkpoint.p
 
 """
 
-N_EPOCHS = 150
+N_TRIALS = 200
+N_EPOCHS = 100
 CHECKPOINT_DIR = Path("/scratch/tgross/vacation_models/artifacts")
 CHECKPOINT_DIR.mkdir(exist_ok=True, parents=True)
 
@@ -79,9 +80,9 @@ def objective(trial: optuna.trial.Trial):
 
     # Suggest values for out_channels and dropout_rates for Conv Blocks
     for i in range(0, hyper_params["num_conv_blocks"]):
-        low = 1 if i == 0 else hyper_params["out_channels"][i - 1]
+        # low = 1 if i == 0 else hyper_params["out_channels"][i - 1]
         hyper_params["out_channels"].append(
-            int(trial.suggest_int(name=f"out_channels_{i}", low=low, high=12))
+            int(trial.suggest_int(name=f"out_channels_{i}", low=1, high=12))
         )
         hyper_params["conv_dropout_rates"].append(
             trial.suggest_float(name=f"conv_dropout_rate_{i}", low=0.0, high=1.0)
@@ -171,7 +172,7 @@ if __name__ == "__main__":
         storage=storage,
         load_if_exists=True,
     )
-    study.optimize(objective, n_trials=100, show_progress_bar=True)
+    study.optimize(objective, n_trials=N_TRIALS, show_progress_bar=False)
 
     pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
     complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])

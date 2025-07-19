@@ -52,6 +52,10 @@ DEFAULT_METRICS = {
 }
 
 
+def _calculate_conv_size(dim, kernel_size, padding, stride):
+    return ((dim - kernel_size + 2 * padding) / stride) + 1
+
+
 @dataclass
 class ConvBlock:
     in_channels: int
@@ -84,6 +88,46 @@ class ConvBlock:
             nn.Dropout2d(p=self.dropout_rate),
         ]
 
+    def get_post_block_dim(self, dim: int) -> list[int]:
+        sizes = []
+
+        if dim < self.conv_kernel_size:
+            raise ValueError(
+                f"The image size ({dim}x{dim}) is smaller than the convolution kernel "
+                f"({self.conv_kernel_size}x{self.conv_kernel_size})!"
+            )
+
+        sizes.append(
+            _calculate_conv_size(
+                dim=dim,
+                kernel_size=self.conv_kernel_size,
+                padding=self.conv_padding,
+                stride=self.conv_stride,
+            )
+        )
+
+        if sizes[-1] < self.pool_kernel_size:
+            raise ValueError(
+                f"The image size ({sizes[-1]}x{sizes[-1]}) is smaller than the pooling "
+                f"kernel ({self.pool_kernel_size}x{self.pool_kernel_size})!"
+            )
+
+        sizes.append(
+            _calculate_conv_size(
+                dim=sizes[-1],
+                kernel_size=self.pool_kernel_size,
+                padding=self.pool_padding,
+                stride=self.pool_stride,
+            )
+        )
+
+        if not sizes[-1].is_integer() or not sizes[-2].is_integer():
+            raise ValueError(
+                f"An image sizes {sizes[-2]} or {sizes[-1]} are not integer values!"
+            )
+
+        return sizes
+
 
 class VCNN(nn.Module):
     def __init__(
@@ -104,7 +148,7 @@ class VCNN(nn.Module):
         num_labels: int = 10,
         loss_func: Callable = torch.nn.CrossEntropyLoss,
         conv_kernel_args={"kernel_size": 3, "padding": 0, "stride": 1},
-        pool_kernel_args={"kernel_size": 2, "padding": 0, "stride": 2},
+        pool_kernel_args={"kernel_size": 2, "padding": 1, "stride": 2},
         metrics: typing.Dict[str, [Callable, dict]] = DEFAULT_METRICS,
         seed: int | None = None,
         device: str = "cuda",
@@ -155,20 +199,29 @@ class VCNN(nn.Module):
         out_channels.insert(0, 3)
 
         # Add convolution blocks
+        post_block_dims = []
         for i in range(0, self._num_conv_blocks):
-            layers.extend(
-                ConvBlock(
-                    in_channels=out_channels[i],
-                    out_channels=out_channels[i + 1],
-                    conv_kernel_size=conv_kernel_args["kernel_size"],
-                    conv_padding=conv_kernel_args["padding"],
-                    conv_stride=conv_kernel_args["stride"],
-                    activation_func=self._activation_func,
-                    pool_kernel_size=pool_kernel_args["kernel_size"],
-                    pool_padding=pool_kernel_args["padding"],
-                    pool_stride=pool_kernel_args["stride"],
-                    dropout_rate=self._conv_dropout_rates[i],
-                ).get_layers()
+            block = ConvBlock(
+                in_channels=out_channels[i],
+                out_channels=out_channels[i + 1],
+                conv_kernel_size=conv_kernel_args["kernel_size"],
+                conv_padding=conv_kernel_args["padding"],
+                conv_stride=conv_kernel_args["stride"],
+                activation_func=self._activation_func,
+                pool_kernel_size=pool_kernel_args["kernel_size"],
+                pool_padding=pool_kernel_args["padding"],
+                pool_stride=pool_kernel_args["stride"],
+                dropout_rate=self._conv_dropout_rates[i],
+            )
+            layers.extend(block.get_layers())
+            post_block_dims.extend(
+                block.get_post_block_dim(
+                    dim=post_block_dims[-1] if i > 0 else self._img_size
+                )
+            )
+            print(
+                f"-------------- CONV BLOCK {i+1} -------------- \n"
+                f"POST-CONV DIM: {post_block_dims[-2]} | POST-POOL DIM: {post_block_dims[-1]}"
             )
 
         # Add fully connected layers
@@ -497,8 +550,13 @@ class VCNN(nn.Module):
 
         torch.save(state, path)
 
-    def summarize(self, input_dims: tuple[int] = (1, 3, 256, 256)):
+    def summarize(self, input_dims: tuple[int] | None = None):
         self.eval()
+        input_dims = (
+            input_dims
+            if input_dims is not None
+            else (self._train_batch_size, 3, self._img_size, self._img_size)
+        )
         return summary(self, input_dims)
 
     def plot_metric(
