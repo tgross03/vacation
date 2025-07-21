@@ -199,7 +199,12 @@ class DataCache:
         del self._timeline
         del self._memsize
 
-        return self(self._max_size, self._cleaning_policy)
+        return self.__init__(
+            max_size=self._max_size,
+            cleaning_policy=self._cleaning_policy,
+            device=self._device,
+            use_cpu_memory=self._use_cpu_memory,
+        )
 
 
 CLASS_NAMES = [

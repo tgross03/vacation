@@ -1,4 +1,4 @@
-from vacation.data.dataloader import GalaxyDataset
+from vacation.data.dataloader import GalaxyDataset, CLASS_NAMES
 from vacation.data.dataset_creation import (
     generate_dataset,
     extend_dataset,

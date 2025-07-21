@@ -21,7 +21,7 @@ https://github.com/optuna/optuna-examples/blob/main/pytorch/pytorch_checkpoint.p
 
 """
 
-N_TRIALS = 200
+N_TRIALS = 100
 N_EPOCHS = 100
 CHECKPOINT_DIR = Path("/scratch/tgross/vacation_models/artifacts")
 CHECKPOINT_DIR.mkdir(exist_ok=True, parents=True)
