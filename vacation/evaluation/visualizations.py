@@ -1,7 +1,9 @@
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-from numpy.typing import ArrayLike
+import optuna
+import torch
+from sklearn.metrics import ConfusionMatrixDisplay
 
 from vacation.data import CLASS_NAMES, GalaxyDataset
 
@@ -31,29 +33,6 @@ def _plot_text(
     text_options: dict = dict(fontsize=12, fontfamily="monospace"),
     bbox: dict = dict(edgecolor="black", boxstyle="round"),
 ):
-    """
-
-    Plot a boxed text onto a matplotlib plot
-
-    Parameters
-    ----------
-    text : str
-        The text to write in the box
-
-    ax : matplotlib.axes._axes.Axes
-        A axis to put the text into
-
-    pos : tuple, optional
-        The relative position of the text box
-
-    text_options : dict, optional
-        The options for the annotation
-
-    bbox : dict, optional
-        The bbox argument of the annotation parameters
-
-    """
-
     textanchor = ax.get_window_extent()
     ax.annotate(
         text,
@@ -66,22 +45,6 @@ def _plot_text(
 
 
 def _plot_label(text: str, ax, facecolor: str):
-    """
-
-    Plot a boxed label in the upper left corner of the plot
-
-    Parameters
-    ----------
-    text : str
-        The text to write in the box
-
-    ax : matplotlib.axes._axes.Axes
-        A axis to put the text into
-
-    facecolor: str
-        The color of the label box background.
-
-    """
 
     _plot_text(
         text=text,
@@ -92,9 +55,9 @@ def _plot_label(text: str, ax, facecolor: str):
     )
 
 
-def example_matrix(
+def plot_example_matrix(
     dataset: GalaxyDataset,
-    y_pred: ArrayLike,
+    y_pred: torch.Tensor,
     layout: tuple[int] = (3, 3),
     true_false_colors: tuple[str] = ("#40a02b", "#e64553"),
     true_false_secondary_colors: tuple[str] = ("#a6d189", "#e78284"),
@@ -107,6 +70,8 @@ def example_matrix(
 ):
 
     rng = np.random.default_rng(seed=seed)
+
+    y_pred = y_pred.cpu().numpy()
 
     y_true = dataset.get_labels().cpu().numpy()
     n_examples = layout[0] * layout[1]
@@ -128,14 +93,15 @@ def example_matrix(
         # Plot true predictions first
         if i < n_true:
             img, label = dataset[int(true_idx[i])]
+            pred = y_pred[int(true_idx[i])]
             color_idx = 0
         else:
             img, label = dataset[int(false_idx[i - n_true])]
+            pred = y_pred[int(false_idx[i - n_true])]
             color_idx = 1
 
         img = img.cpu().swapaxes(0, 2)
         label = label.cpu()
-        pred = y_pred[int(false_idx[i - n_true])]
 
         ax[i] = _set_axes_border(
             ax=ax[i], color=true_false_colors[color_idx], width=border_width
@@ -149,3 +115,37 @@ def example_matrix(
 
     if save_path is not None:
         fig.savefig(save_path, **save_args)
+
+    return fig, ax
+
+
+def plot_confusion_matrix(
+    y_true: torch.Tensor,
+    y_pred: torch.Tensor,
+    cmap: str = "inferno",
+    normalize: bool = False,
+):
+    return ConfusionMatrixDisplay.from_predictions(
+        y_true=y_true.cpu().numpy(),
+        y_pred=y_pred.cpu().numpy(),
+        cmap="inferno",
+        normalize="true" if normalize else None,
+        values_format=".2f" if normalize else None,
+    )
+
+
+def plot_hyperparameter_importance(study: optuna.study.Study, log: bool = True):
+
+    param_importances = optuna.importance.get_param_importances(study=study)
+
+    fig, ax = plt.subplots(figsize=(3, 6))
+    ax.barh(
+        y=list(param_importances.keys())[::-1],
+        width=list(param_importances.values())[::-1],
+        color="#e64553",
+        log=True,
+    )
+    ax.set_xlabel("fANOVA Importance Score")
+    ax.set_ylabel("Hyperparameter")
+
+    return fig, ax

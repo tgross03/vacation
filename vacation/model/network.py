@@ -1,5 +1,4 @@
 import typing
-import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,10 +7,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import optuna
 import torch
+import torchinfo
 from sklearn.metrics import accuracy_score  # , f1_score, precision_score, recall_score
 from torch import nn, optim
 from torch.utils.data import DataLoader
-from torchinfo import summary
 from tqdm.auto import tqdm
 
 import vacation
@@ -149,6 +148,7 @@ class VCNN(nn.Module):
         loss_func: Callable = torch.nn.CrossEntropyLoss,
         conv_kernel_args={"kernel_size": 3, "padding": 0, "stride": 1},
         pool_kernel_args={"kernel_size": 2, "padding": 1, "stride": 2},
+        verbose: bool = False,
         metrics: typing.Dict[str, [Callable, dict]] = DEFAULT_METRICS,
         seed: int | None = None,
         device: str = "cuda",
@@ -219,10 +219,11 @@ class VCNN(nn.Module):
                     dim=post_block_dims[-1] if i > 0 else self._img_size
                 )
             )
-            print(
-                f"-------------- CONV BLOCK {i+1} -------------- \n"
-                f"POST-CONV DIM: {post_block_dims[-2]} | POST-POOL DIM: {post_block_dims[-1]}"
-            )
+            if verbose:
+                print(
+                    f"-------------- CONV BLOCK {i+1} -------------- \n"
+                    f"POST-CONV DIM: {post_block_dims[-2]} | POST-POOL DIM: {post_block_dims[-1]}"
+                )
 
         # Add fully connected layers
         dense_layers = []
@@ -550,14 +551,36 @@ class VCNN(nn.Module):
 
         torch.save(state, path)
 
-    def summarize(self, input_dims: tuple[int] | None = None):
+    def summarize(
+        self, input_dims: tuple[int] | None = None
+    ) -> torchinfo.model_statistics.ModelStatistics:
         self.eval()
         input_dims = (
             input_dims
             if input_dims is not None
             else (self._train_batch_size, 3, self._img_size, self._img_size)
         )
-        return summary(self, input_dims)
+        return torchinfo.summary(self, input_dims)
+
+    def predict_dataset(
+        self,
+        dataset: GalaxyDataset,
+        show_progress: bool = True,
+        return_true: bool = False,
+    ) -> torch.Tensor:
+        self.eval()
+        y_pred = torch.Tensor([]).to(self._device)
+
+        for i in tqdm(
+            range(0, len(dataset)), desc="Predicting dataset", disable=not show_progress
+        ):
+
+            y_pred = torch.cat([y_pred, self(dataset[i][0][None]).argmax(dim=1)])
+
+        if return_true:
+            return y_pred, dataset.get_labels()
+        else:
+            return y_pred
 
     def plot_metric(
         self,
@@ -594,6 +617,8 @@ class VCNN(nn.Module):
         path: str,
         train_dataset: GalaxyDataset | None = None,
         valid_dataset: GalaxyDataset | None = None,
+        load_model_state: bool = True,
+        load_optimizer_state: bool = True,
         metrics: typing.Dict[str, [Callable, dict]] = DEFAULT_METRICS,
         relative_to_package: bool = False,
         device: str | None = None,
@@ -634,18 +659,11 @@ class VCNN(nn.Module):
         cls._loss_metric.train_vals = state["loss"][0]
         cls._loss_metric.valid_vals = state["loss"][1]
 
-        model_state_dict = state["model_state_dict"]
-        model_state_dict = {
-            f"model.{key}": value for key, value in model_state_dict.items()
-        }
+        if load_model_state:
+            cls.model.load_state_dict(state["model_state_dict"])
 
-        try:
+        if load_optimizer_state:
             cls._optimizer.load_state_dict(state["optimizer_state_dict"])
-        except ValueError as e:
-            warnings.warn(
-                "Could not load optimizer state dict. Training is probably not continuable!\n"
-                f"Error: {e}"
-            )
 
         if train_dataset is None and valid_dataset is None:
             cls.init_data(
