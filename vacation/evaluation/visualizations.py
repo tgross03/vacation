@@ -8,22 +8,6 @@ from sklearn.metrics import ConfusionMatrixDisplay
 from vacation.data import CLASS_NAMES, GalaxyDataset
 
 
-# Based on:
-# https://stackoverflow.com/a/7944576
-# https://stackoverflow.com/a/39598358
-# https://stackoverflow.com/a/69099757
-def _set_axes_border(ax: matplotlib.axes._axes.Axes, color: str, width: float):
-    [x.set_linewidth(width) for x in ax.spines.values()]
-
-    ax.set_xticks([])
-    ax.set_yticks([])
-
-    plt.setp(ax.spines.values(), color=color)
-    plt.setp([ax.get_xticklines(), ax.get_yticklines()], color=color)
-
-    return ax
-
-
 # The next two methods are taken from an own project:
 # https://github.com/tgross03/simtools/blob/main/simtools/simulations/simulation_chain.py
 def _plot_text(
@@ -59,8 +43,8 @@ def plot_example_matrix(
     dataset: GalaxyDataset,
     y_pred: torch.Tensor,
     layout: tuple[int] = (3, 3),
-    true_false_colors: tuple[str] = ("#40a02b", "#e64553"),
-    true_false_secondary_colors: tuple[str] = ("#a6d189", "#e78284"),
+    true_false_ratio: float = 0.4,
+    true_false_colors: tuple[str] = ("#a6d189", "#e78284"),
     border_width: float = 3.0,
     figsize: tuple[float] = (7, 7),
     plot_args: dict = {},
@@ -77,10 +61,12 @@ def plot_example_matrix(
     n_examples = layout[0] * layout[1]
 
     mask = y_true == y_pred
-    accuracy = np.sum(mask) / y_true.size
 
-    n_true = int(np.round(n_examples * accuracy))
-    n_false = int(np.round(n_examples * (1 - accuracy)))
+    n_true = int(np.round(n_examples * true_false_ratio))
+    n_false = int(np.round(n_examples * (1 - true_false_ratio)))
+
+    print(n_true)
+    print(n_false)
 
     true_idx = rng.choice(np.argwhere(mask == True).ravel(), n_true)  # noqa: E712
     false_idx = rng.choice(np.argwhere(mask == False).ravel(), n_false)  # noqa: E712
@@ -103,14 +89,11 @@ def plot_example_matrix(
         img = img.cpu().swapaxes(0, 2)
         label = label.cpu()
 
-        ax[i] = _set_axes_border(
-            ax=ax[i], color=true_false_colors[color_idx], width=border_width
-        )
         ax[i].imshow(img, **plot_args)
         _plot_label(
             text=f"True: {CLASS_NAMES[int(label)]}\nPred: {CLASS_NAMES[int(pred)]}",
             ax=ax[i],
-            facecolor=true_false_secondary_colors[color_idx],
+            facecolor=true_false_colors[color_idx],
         )
 
     if save_path is not None:
@@ -122,30 +105,46 @@ def plot_example_matrix(
 def plot_confusion_matrix(
     y_true: torch.Tensor,
     y_pred: torch.Tensor,
-    cmap: str = "inferno",
+    cmap: str = "viridis",
     normalize: bool = False,
 ):
     return ConfusionMatrixDisplay.from_predictions(
         y_true=y_true.cpu().numpy(),
         y_pred=y_pred.cpu().numpy(),
-        cmap="inferno",
+        cmap=cmap,
         normalize="true" if normalize else None,
         values_format=".2f" if normalize else None,
     )
 
 
-def plot_hyperparameter_importance(study: optuna.study.Study, log: bool = True):
+def plot_hyperparameter_importance(
+    study: optuna.study.Study, evaluator: str = "ped-anova", log: bool = True
+):
 
-    param_importances = optuna.importance.get_param_importances(study=study)
+    match evaluator:
+        case "ped-anova":
+            eval_cls = optuna.importance.PedAnovaImportanceEvaluator()
+            eval_name = "PED-ANOVA"
+        case "fanova":
+            eval_cls = optuna.importance.FanovaImportanceEvaluator()
+            eval_name = "fANOVA"
+        case "mean_decrease_impurity":
+            eval_cls = optuna.importance.MeanDecreaseImpurityImportanceEvaluator()
+            eval_name = "Mean Decrease Impurity"
+
+    param_importances = optuna.importance.get_param_importances(
+        study=study,
+        evaluator=eval_cls,
+    )
 
     fig, ax = plt.subplots(figsize=(3, 6))
     ax.barh(
         y=list(param_importances.keys())[::-1],
         width=list(param_importances.values())[::-1],
         color="#e64553",
-        log=True,
+        log=log,
     )
-    ax.set_xlabel("fANOVA Importance Score")
+    ax.set_xlabel(f"{eval_name} Importance Score")
     ax.set_ylabel("Hyperparameter")
 
     return fig, ax
