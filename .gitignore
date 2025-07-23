@@ -153,6 +153,7 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 .data
+.backup
 .models
 *.pt
 *.pth
