@@ -332,8 +332,12 @@ class GalaxyDataset(Dataset):
         fig, ax = plt.subplots(2, 5, figsize=(10, 5), layout="tight")
         ax = ax.ravel()
         for label in tqdm(labels, desc="Plotting images"):
-            ax[label].imshow(self[int(label_idx[label])][0].cpu().permute(1, 2, 0))
-            ax[label].set_title(CLASS_NAMES[label], fontsize="small")
+            image = self[int(label_idx[label])][0].cpu().permute(1, 2, 0)
+            if np.isclose(image.max(), 255.0):
+                image /= 255.0
+            ax[label].imshow(image)
+            ax[label].set_title(f"{CLASS_NAMES[label]} ({label})", fontsize="small")
+            ax[label].axis("off")
 
         if save_path:
             fig.savefig(save_path, **save_args)

@@ -1,8 +1,0 @@
-
-# font sizes
-font.size : 13
-legend.fontsize : medium
-xtick.labelsize : small
-ytick.labelsize : small
-
-axes.formatter.use_locale : True

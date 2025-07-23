@@ -89,6 +89,8 @@ def plot_example_matrix(
         img = img.cpu().swapaxes(0, 2)
         label = label.cpu()
 
+        ax[i].axis("off")
+
         ax[i].imshow(img, **plot_args)
         _plot_label(
             text=f"True: {CLASS_NAMES[int(label)]}\nPred: {CLASS_NAMES[int(pred)]}",

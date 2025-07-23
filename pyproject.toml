@@ -47,6 +47,7 @@ dependencies = [
 ]
 
 [project.scripts]
+vacation = "vacation.cli.cli:entry_point"
 
 [tool.setuptools_scm]
 write_to = "vacation/_version.py"
