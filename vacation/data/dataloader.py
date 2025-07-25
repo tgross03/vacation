@@ -295,9 +295,21 @@ class GalaxyDataset(Dataset):
 
         return label, CLASS_NAMES[label]
 
+    def get_images(self, device: str) -> torch.Tensor:
+        if self._index_collection is None:
+            if self._end_idx == -1:
+                return self._labels
+            else:
+                return self._labels[: self._end_idx]
+        else:
+            return self._labels[self._index_collection]
+
     def get_labels(self) -> torch.Tensor:
         if self._index_collection is None:
-            return self._labels[: self._end_idx]
+            if self._end_idx == -1:
+                return self._labels
+            else:
+                return self._labels[: self._end_idx]
         else:
             return self._labels[self._index_collection]
 
