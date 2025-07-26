@@ -3,10 +3,18 @@ import torchvision.transforms as T
 from skimage.feature import hog
 from tqdm.auto import tqdm
 
+from vacation.data import GalaxyDataset
+
 
 # extract histogram of oriented gradient features from image data and one sample image
 def hog_features(
-    df, length=None, pixels_per_cell=(12, 12), visualize=False, augmented=True
+    df: GalaxyDataset,
+    length: int | None = None,
+    pixels_per_cell: tuple[int] = (12, 12),
+    visualize: bool = False,
+    augmented: bool = True,
+    sample_img_idx: int = 0,
+    visualize_only: bool = False,
 ):
 
     if length is None:
@@ -16,7 +24,7 @@ def hog_features(
 
     # example image to see the effect of HOG and the filter
 
-    sample_image = df[0][0]
+    sample_image = df[sample_img_idx][0]
 
     if augmented:
         gaussian_filter = T.GaussianBlur(3, sigma=1.0)
@@ -32,6 +40,9 @@ def hog_features(
         visualize=True,
         channel_axis=-1,
     )
+
+    if visualize_only:
+        return sample_image
 
     # initialization of feature vector
     X = np.zeros((n, sample_fd.shape[0]), dtype=np.float32)

@@ -65,7 +65,7 @@ def plot(path: str, type: str, out: Path, seed: int | None):
         ax[1].imshow(_transform(image).swapaxes(2, 0))
         ax[1].set_title("Augmented Image")
 
-        fig.savefig(str(out / "augmented.pdf"))
+        fig.savefig(str(out / "augmented.pdf"), bbox_inches="tight")
         print(f"Created {str(out / 'augmented.pdf')}")
 
 
