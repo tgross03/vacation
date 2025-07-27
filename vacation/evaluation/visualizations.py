@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -48,7 +50,7 @@ def plot_example_matrix(
     border_width: float = 3.0,
     figsize: tuple[float] = (7, 7),
     plot_args: dict = {},
-    save_path: str | None = None,
+    save_path: str | Path | None = None,
     save_args: dict = {"bbox_inches": "tight"},
     seed: int | None = None,
 ):
@@ -64,9 +66,6 @@ def plot_example_matrix(
 
     n_true = int(np.round(n_examples * true_false_ratio))
     n_false = int(np.round(n_examples * (1 - true_false_ratio)))
-
-    print(n_true)
-    print(n_false)
 
     true_idx = rng.choice(np.argwhere(mask == True).ravel(), n_true)  # noqa: E712
     false_idx = rng.choice(np.argwhere(mask == False).ravel(), n_false)  # noqa: E712
@@ -109,14 +108,21 @@ def plot_confusion_matrix(
     y_pred: torch.Tensor,
     cmap: str = "viridis",
     normalize: bool = False,
+    save_path: str | Path | None = None,
+    save_args: dict = {"bbox_inches": "tight"},
 ):
-    return ConfusionMatrixDisplay.from_predictions(
+    cmatrix = ConfusionMatrixDisplay.from_predictions(
         y_true=y_true.cpu().numpy(),
         y_pred=y_pred.cpu().numpy(),
         cmap=cmap,
         normalize="true" if normalize else None,
         values_format=".2f" if normalize else None,
     )
+
+    if save_path is not None:
+        cmatrix.figure_.savefig(save_path, **save_args)
+
+    return cmatrix
 
 
 def plot_hyperparameter_importance(
