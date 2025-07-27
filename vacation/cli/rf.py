@@ -5,7 +5,7 @@ import joblib
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from sklearn.metrics import classification_report
+from sklearn.metrics import accuracy_score, classification_report
 
 from vacation.data import GalaxyDataset
 from vacation.evaluation.visualizations import (
@@ -97,6 +97,10 @@ def evaluate(
 
     print(
         classification_report(y_pred=y_pred.cpu().numpy(), y_true=y_true.cpu().numpy())
+    )
+    print(
+        "Accuracy",
+        accuracy_score(y_pred=y_pred.cpu().numpy(), y_true=y_true.cpu().numpy()),
     )
 
     plot_example_matrix(
