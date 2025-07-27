@@ -49,7 +49,6 @@ def command():
 @click.option(
     "--pre-process",
     is_flag=True,
-    default=True,
     help="Whether to apply pre-processing to the images before the evaluation.",
 )
 @click.option(
@@ -88,8 +87,10 @@ def evaluate(
         features, _, _ = hog_features(dataset, augmented=pre_process)
 
     if save_to is not None:
-        np.save(save_to / "rf_features.npy", features)
-        print(f"Saved {len(features)} features to {str(save_to / 'rf_features.npy')}.")
+        np.save(save_to / f"rf_features{'_proc' if pre_process else ''}.npy", features)
+        print(
+            f"Saved {len(features)} features to {str(save_to / f'rf_features{'_proc' if pre_process else ''}.npy')}."
+        )
 
     y_pred = torch.from_numpy(model.predict(features))
     y_true = dataset.get_labels()
@@ -101,14 +102,15 @@ def evaluate(
     plot_example_matrix(
         dataset=dataset,
         y_pred=y_pred,
-        save_path=out / "rf_example_matrix.pdf",
+        save_path=out / f"rf_example_matrix{'_proc' if pre_process else ''}.pdf",
         figsize=(5, 5),
+        seed=seed,
     )
     plot_confusion_matrix(
         y_true=y_true,
         y_pred=y_pred,
         normalize=True,
-        save_path=out / "rf_confusion_matrix.pdf",
+        save_path=out / f"rf_confusion_matrix{'_proc' if pre_process else ''}.pdf",
     )
 
 
