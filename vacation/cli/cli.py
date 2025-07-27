@@ -2,7 +2,7 @@ import sys
 
 import click
 
-from . import dataset, rf
+from . import cnn, dataset, rf
 
 
 # Structure of the entry_point group and adding of the subcommands
@@ -14,6 +14,7 @@ def entry_point(**kwargs):
 
 entry_point.add_command(dataset.command)
 entry_point.add_command(rf.command)
+entry_point.add_command(cnn.command)
 
 if __name__ == "__main__":
     if len(sys.argv) == 1:

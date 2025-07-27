@@ -589,6 +589,8 @@ class VCNN(nn.Module):
         colors: list[str] = ["#1e66f5", "#e64553"],
         name: str | None = None,
         plot_args: dict = {},
+        grid: bool = True,
+        save_path: str | None = None,
         save_args: dict = {"bbox_inches": "tight"},
     ):
 
@@ -607,7 +609,12 @@ class VCNN(nn.Module):
         ax.set_xlabel("Epoch")
         ax.set_ylabel(name)
 
+        ax.grid("on" if grid else "off")
+
         ax.legend()
+
+        if save_path is not None:
+            fig.savefig(save_path, **save_args)
 
         return fig, ax
 

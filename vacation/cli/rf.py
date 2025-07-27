@@ -8,7 +8,7 @@ from vacation.data import GalaxyDataset
 from vacation.model.random_forest import hog_features
 
 
-@click.group("rf", help="Commands related to the random forest")
+@click.group("rf", help="Commands related to the Random Forest")
 def command():
     pass
 
