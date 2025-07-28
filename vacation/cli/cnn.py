@@ -137,11 +137,26 @@ def evaluate(
     help="The metric to plot.",
 )
 @click.option(
+    "--dataset-directory",
+    type=click.Path(
+        exists=True, file_okay=False, dir_okay=True, resolve_path=True, path_type=Path
+    ),
+    default=None,
+    help="The directory where the Galaxy10_DECaLS_train.h5 and Galaxy10_DECaLS_valid.h5 dataset are saved."
+    "If None, the datasets given in the .pt file of the model will be used.",
+)
+@click.option(
     "--dataset",
     "-d",
     type=click.Choice(["both", "train", "valid"], case_sensitive=True),
     default="both",
     help="The dataset to plot the metric for.",
+)
+@click.option(
+    "--device",
+    type=str,
+    default="cpu",
+    help="The device to load the model and dataset to. If not provided, cpu will be used.",
 )
 @click.option(
     "--out",
@@ -152,9 +167,32 @@ def evaluate(
     default=Path("./").absolute(),
     help="The output directory to create the plots at.",
 )
-def plot_metric(path: str, type: str, dataset: str, out: Path):
+def plot_metric(
+    path: str,
+    type: str,
+    dataset_directory: Path | None,
+    dataset: str,
+    device: str,
+    out: Path,
+):
 
-    model = VCNN.load(path=path)
+    if dataset_directory is not None:
+        train_ds = GalaxyDataset(
+            dataset_directory / "Galaxy10_DECaLS_train.h5",
+            device=device,
+            cache_loaded=False,
+        )
+        valid_ds = GalaxyDataset(
+            dataset_directory / "Galaxy10_DECaLS_valid.h5",
+            device=device,
+            cache_loaded=False,
+        )
+    else:
+        train_ds, valid_ds = None, None
+
+    model = VCNN.load(
+        path=path, train_dataset=train_ds, valid_dataset=valid_ds, device=device
+    )
 
     if dataset == "both":
         dataset = ["train", "valid"]
