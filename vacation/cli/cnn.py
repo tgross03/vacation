@@ -56,8 +56,8 @@ def command():
 @click.option(
     "--device",
     type=str,
-    default=None,
-    help="The device to load the model and dataset to. If None, the model's native device will be used.",
+    default="cpu",
+    help="The device to load the model and dataset to. If None, the cpu will be used.",
 )
 @click.option(
     "--seed",
@@ -100,12 +100,9 @@ def evaluate(
     else:
         train_ds, valid_ds = None, None
 
-    if device is None:
-        model = VCNN.load(model_path, train_dataset=train_ds, valid_dataset=valid_ds)
-    else:
-        model = VCNN.load(
-            model_path, device=device, train_dataset=train_ds, valid_dataset=valid_ds
-        )
+    model = VCNN.load(
+        model_path, device=device, train_dataset=train_ds, valid_dataset=valid_ds
+    )
 
     dataset = GalaxyDataset(path=dataset_path, device=model._device)
 
