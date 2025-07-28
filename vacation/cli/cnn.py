@@ -45,6 +45,15 @@ def command():
     help="The directory to save the evaluation results to. If None, the results won't be saved.",
 )
 @click.option(
+    "--dataset-directory",
+    type=click.Path(
+        exists=True, file_okay=False, dir_okay=True, resolve_path=True, path_type=Path
+    ),
+    default=None,
+    help="The directory where the Galaxy10_DECaLS_train.h5 and Galaxy10_DECaLS_valid.h5 dataset are saved."
+    "If None, the datasets given in the .pt file of the model will be used.",
+)
+@click.option(
     "--device",
     type=str,
     default=None,
@@ -71,15 +80,32 @@ def evaluate(
     dataset_path: str,
     load_from: Path | None,
     save_to: Path | None,
+    dataset_directory: Path | None,
     device: str | None,
     seed: int | None,
     out: Path,
 ):
 
-    if device is None:
-        model = VCNN.load(model_path)
+    if dataset_directory is not None:
+        train_ds = GalaxyDataset(
+            dataset_directory / "Galaxy10_DECaLS_train.h5",
+            device=device,
+            cache_loaded=False,
+        )
+        valid_ds = GalaxyDataset(
+            dataset_directory / "Galaxy10_DECaLS_valid.h5",
+            device=device,
+            cache_loaded=False,
+        )
     else:
-        model = VCNN.load(model_path, device=device)
+        train_ds, valid_ds = None, None
+
+    if device is None:
+        model = VCNN.load(model_path, train_dataset=train_ds, valid_dataset=valid_ds)
+    else:
+        model = VCNN.load(
+            model_path, device=device, train_dataset=train_ds, valid_dataset=valid_ds
+        )
 
     dataset = GalaxyDataset(path=dataset_path, device=model._device)
 
