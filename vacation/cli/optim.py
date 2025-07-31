@@ -32,13 +32,13 @@ def command():
 @click.argument(
     "train_dataset",
     type=click.Path(
-        exists=True, file_okay=False, dir_okay=True, resolve_path=True, path_type=Path
+        exists=True, file_okay=True, dir_okay=False, resolve_path=True, path_type=Path
     ),
 )
 @click.argument(
     "valid_dataset",
     type=click.Path(
-        exists=True, file_okay=False, dir_okay=True, resolve_path=True, path_type=Path
+        exists=True, file_okay=True, dir_okay=False, resolve_path=True, path_type=Path
     ),
 )
 @click.option(
@@ -80,7 +80,7 @@ def command():
     help="Maximum cache size of the validation data.",
 )
 @click.option(
-    "--seeds",
+    "--seed",
     type=int,
     default=42,
     help="The seed of the CNN (2).",
@@ -282,19 +282,19 @@ def cnn(
 @click.argument(
     "train_dataset",
     type=click.Path(
-        exists=True, file_okay=False, dir_okay=True, resolve_path=True, path_type=Path
+        exists=True, file_okay=True, dir_okay=False, resolve_path=True, path_type=Path
     ),
 )
 @click.argument(
     "valid_dataset",
     type=click.Path(
-        exists=True, file_okay=False, dir_okay=True, resolve_path=True, path_type=Path
+        exists=True, file_okay=True, dir_okay=False, resolve_path=True, path_type=Path
     ),
 )
 @click.argument(
     "training_dataset_non_augmented",
     type=click.Path(
-        exists=True, file_okay=False, dir_okay=True, resolve_path=True, path_type=Path
+        exists=True, file_okay=True, dir_okay=False, resolve_path=True, path_type=Path
     ),
 )
 @click.option(
