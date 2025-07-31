@@ -8,7 +8,7 @@ One method is a Convolutional Neural Network. The other one is a Random Forest.
 
 <img width="2282" height="636" alt="cnn_structure" src="https://github.com/user-attachments/assets/35f6128d-9127-4f75-96e7-ce904376a86c" />
 
-Image created by @nicktky
+Image created by [@nicktky](https://github.com/nicktky)
 
 ## Dataset
 
