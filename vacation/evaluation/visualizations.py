@@ -30,13 +30,13 @@ def _plot_text(
     )
 
 
-def _plot_label(text: str, ax, facecolor: str):
+def _plot_label(text: str, ax, facecolor: str, fontsize=7.3):
 
     _plot_text(
         text=text,
         ax=ax,
         pos=(0.05, 0.95),
-        text_options=dict(fontsize=7.3, color="black"),
+        text_options=dict(fontsize=fontsize, color="black"),
         bbox=dict(facecolor=facecolor, alpha=0.8, edgecolor="black", boxstyle="round"),
     )
 
@@ -95,6 +95,7 @@ def plot_example_matrix(
             text=f"True: {CLASS_NAMES[int(label)]}\nPred: {CLASS_NAMES[int(pred)]}",
             ax=ax[i],
             facecolor=true_false_colors[color_idx],
+            fontsize=7.3,
         )
 
     if save_path is not None:
@@ -126,7 +127,11 @@ def plot_confusion_matrix(
 
 
 def plot_hyperparameter_importance(
-    study: optuna.study.Study, evaluator: str = "ped-anova", log: bool = True
+    study: optuna.study.Study,
+    evaluator: str = "ped-anova",
+    log: bool = True,
+    save_path: str | Path | None = None,
+    save_args: dict = {"bbox_inches": "tight"},
 ):
 
     match evaluator:
@@ -145,7 +150,7 @@ def plot_hyperparameter_importance(
         evaluator=eval_cls,
     )
 
-    fig, ax = plt.subplots(figsize=(3, 6))
+    fig, ax = plt.subplots(figsize=(4, 6))
     ax.barh(
         y=list(param_importances.keys())[::-1],
         width=list(param_importances.values())[::-1],
@@ -154,5 +159,8 @@ def plot_hyperparameter_importance(
     )
     ax.set_xlabel(f"{eval_name} Importance Score")
     ax.set_ylabel("Hyperparameter")
+
+    if save_path is not None:
+        fig.savefig(save_path, **save_args)
 
     return fig, ax

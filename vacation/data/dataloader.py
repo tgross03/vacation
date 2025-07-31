@@ -326,6 +326,7 @@ class GalaxyDataset(Dataset):
 
     def plot_examples(
         self,
+        show_percentages: bool = False,
         random_state: int | None = None,
         save_path: str | None = None,
         save_args: dict = {"bbox_inches": "tight"},
@@ -334,6 +335,7 @@ class GalaxyDataset(Dataset):
         rng = np.random.default_rng(seed=random_state)
 
         labels, counts = np.unique(self.get_labels().cpu(), return_counts=True)
+        total = np.sum(counts)
 
         label_idx = np.zeros(len(CLASS_NAMES), dtype=np.int64)
         for label in labels:
@@ -343,12 +345,27 @@ class GalaxyDataset(Dataset):
 
         fig, ax = plt.subplots(2, 5, figsize=(10, 5), layout="tight")
         ax = ax.ravel()
-        for label in tqdm(labels, desc="Plotting images"):
+
+        for i in tqdm(range(len(labels)), desc="Plotting images"):
+
+            label, count = labels[i], counts[i]
+
             image = self[int(label_idx[label])][0].cpu().permute(1, 2, 0)
             if np.isclose(image.max(), 255.0):
                 image /= 255.0
             ax[label].imshow(image)
             ax[label].set_title(f"{CLASS_NAMES[label]} ({label})", fontsize="small")
+
+            if show_percentages:
+                from vacation.evaluation.visualizations import _plot_label
+
+                _plot_label(
+                    f"{('{:.1f}').format(np.round(100 * count / total, 1))}%",
+                    ax=ax[label],
+                    facecolor="white",
+                    fontsize=10,
+                )
+
             ax[label].axis("off")
 
         if save_path:

@@ -134,9 +134,9 @@ def evaluate(
         dataset=dataset,
         y_pred=y_pred,
         save_path=out / "cnn_example_matrix.pdf",
-        layout=(4, 3),
-        true_false_ratio=0.5,
-        figsize=(5, 7),
+        layout=(1, 5),
+        true_false_ratio=0.4,
+        figsize=(8.2, 8.2),
         seed=seed,
     )
     plot_confusion_matrix(

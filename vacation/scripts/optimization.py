@@ -21,7 +21,7 @@ https://github.com/optuna/optuna-examples/blob/main/pytorch/pytorch_checkpoint.p
 
 """
 
-N_TRIALS = 100
+N_TRIALS = 300
 N_EPOCHS = 100
 CHECKPOINT_DIR = Path("/scratch/tgross/vacation_models/artifacts")
 CHECKPOINT_DIR.mkdir(exist_ok=True, parents=True)
@@ -30,14 +30,14 @@ artifact_store = FileSystemArtifactStore(base_path=CHECKPOINT_DIR)
 
 # Initialize Datasets to avoid reloading data from disk
 train_ds = GalaxyDataset(
-    path="/scratch/tgross/vacation_data/reduced_size//Galaxy10_DECals_train.h5",
+    path="/scratch/tgross/vacation_data/reduced_size/Galaxy10_DECals_train.h5",
     device="cuda:1",
     max_cache_size="15G",
     cache_loaded=True,
 )
 
 valid_ds = GalaxyDataset(
-    path="/scratch/tgross/vacation_data/reduced_size//Galaxy10_DECals_valid.h5",
+    path="/scratch/tgross/vacation_data/reduced_size/Galaxy10_DECals_valid.h5",
     device="cuda:1",
     max_cache_size="3G",
     cache_loaded=True,
